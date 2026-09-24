@@ -256,7 +256,11 @@ let calMonth=today().slice(0,7), selDay=today(), repMonth=today().slice(0,7);
 /* ---------- Telegram ---------- */
 const TG = (typeof window!=="undefined" && window.Telegram && window.Telegram.WebApp) ? window.Telegram.WebApp : null;
 if(TG){ try{ TG.ready(); TG.expand(); if(TG.colorScheme) document.documentElement.dataset.theme=TG.colorScheme; }catch(e){} }
-const CS = (TG && TG.CloudStorage && TG.CloudStorage.getKeys) ? TG.CloudStorage : null;
+const CS_RAW = (TG && TG.CloudStorage && TG.CloudStorage.getKeys) ? TG.CloudStorage : null;
+const CS_OK = !!(CS_RAW && (!TG.isVersionAtLeast || TG.isVersionAtLeast("6.9")));
+const CS = CS_OK ? CS_RAW : null;
+let diag = TG ? ("Telegram "+(TG.version||"?")+", "+(TG.platform||"?")+(CS_RAW?(CS_OK?", облако доступно":", облако не поддерживается"):", облака нет")) : "открыто вне Telegram";
+function stamp(t){ const d=new Date(); $("syncState").textContent=t+" · "+pad(d.getHours())+":"+pad(d.getMinutes()); }
 const CHUNK=3500;
 function csSet(name,str){
   return new Promise((res,rej)=>{
@@ -284,17 +288,18 @@ function csKeys(){ return new Promise(res=>CS.getKeys((e,k)=>res(k||[]))); }
 let queue = Promise.resolve();
 function enqueue(fn){ queue = queue.then(fn).catch(err=>{ console.error(err); showError(err); }); return queue; }
 function showError(err){
-  $("syncState").textContent = err && err.code==="quota_exceeded" ? "Хранилище заполнено: удалите старые записи." :
-    "Не удалось сохранить. Проверьте соединение и повторите действие.";
+  console.error(err);
+  $("syncState").textContent = (err && err.code==="quota_exceeded") ? "Хранилище заполнено: удалите старые записи." :
+    "Не удалось сохранить в Telegram — копия осталась на этом устройстве. "+diag;
 }
 function saveLocal(){ try{ localStorage.setItem(LS_KEY, JSON.stringify({students,months})); }catch(e){ $("syncState").textContent="Не удалось сохранить в браузере"; } }
 function saveStudents(){
-  if(mode==="cloud") return enqueue(()=>csSet("st",JSON.stringify(students)));
+  if(mode==="cloud"){ saveLocal(); return enqueue(()=>csSet("st",JSON.stringify(students)).then(()=>stamp("Сохранено в Telegram"))); }
   if(mode==="db") return enqueue(()=>db.doc("config/students").set({list:students}));
   saveLocal();
 }
 function saveMonth(key){
-  if(mode==="cloud") return enqueue(()=>csSet("m"+key,JSON.stringify(months[key]||[])));
+  if(mode==="cloud"){ saveLocal(); return enqueue(()=>csSet("m"+key,JSON.stringify(months[key]||[])).then(()=>stamp("Сохранено в Telegram"))); }
   if(mode==="db") return enqueue(()=>db.doc("months/"+key).set({events:months[key]||[]}));
   saveLocal();
 }
@@ -313,13 +318,31 @@ async function init(){
   if(CS){
     mode="cloud";
     $("syncState").textContent="Загрузка из Telegram…";
+    let got=false;
     try{
-      const st=await csGet("st"); if(st){ students=JSON.parse(st); normStudents(); }
+      const st=await csGet("st"); if(st){ students=JSON.parse(st); normStudents(); got=true; }
       const keys=await csKeys();
       const names=[...new Set(keys.filter(k=>/^m\d{4}-\d{2}__n$/.test(k)).map(k=>k.slice(0,k.indexOf("__"))))];
-      for(const nm of names){ const raw=await csGet(nm); if(raw) months[nm.slice(1)]=JSON.parse(raw); }
-      $("syncState").textContent="Сохраняется в Telegram, доступно на всех ваших устройствах";
-    }catch(e){ $("syncState").textContent="Не удалось загрузить данные из Telegram"; }
+      for(const nm of names){ const raw=await csGet(nm); if(raw){ months[nm.slice(1)]=JSON.parse(raw); got=true; } }
+    }catch(e){ console.error(e); }
+    if(!got){
+      const before=JSON.stringify(students);
+      loadLocal(); normStudents();
+      const hasLocal = allEvents().length>0 || JSON.stringify(students)!==before;
+      if(hasLocal){
+        $("syncState").textContent="Переношу записи с этого устройства в Telegram…";
+        try{
+          await csSet("st",JSON.stringify(students));
+          for(const k in months) await csSet("m"+k,JSON.stringify(months[k]||[]));
+          stamp("Перенесено в Telegram");
+        }catch(e){ showError(e); }
+      } else stamp("Готово к работе · Telegram");
+    } else stamp("Загружено из Telegram");
+    render(); return;
+  }
+  if(CS_RAW && !CS_OK){
+    mode="local"; loadLocal(); normStudents();
+    $("syncState").textContent="Обновите Telegram: эта версия не умеет синхронизировать данные. Пока записи хранятся на этом устройстве.";
     render(); return;
   }
   let d=null;
@@ -1163,6 +1186,7 @@ function openBackup(){
     <input type="file" id="bkFile" accept=".json,application/json,text/plain" style="margin-top:8px">
     <textarea id="bkIn" style="min-height:70px;margin-top:8px" placeholder="или вставьте текст копии сюда"></textarea>
     <div class="hint" id="bkPrev"></div>
+    <div class="hint" style="margin-top:10px">Хранилище: ${mode==="cloud"?"облако Telegram":mode==="db"?"аккаунт Claude":"это устройство"} · ${esc(diag)}</div>
     <div class="foot"><button class="secondary" type="button" id="bkClose">Закрыть</button><button class="secondary" type="button" id="bkRestore" disabled>Заменить данные</button></div>`);
   $("bkClose").onclick=closeModal;
   const markBackup=()=>{ try{ localStorage.setItem("tutor-last-backup",String(Date.now())); }catch(e){} };
