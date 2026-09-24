@@ -1,0 +1,1297 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Учёт занятий и оплат</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#EEF2F6; --paper:#FFFFFF; --grid:#DCE4EC; --ink:#1B2733; --muted:#5E6E7D; --line:#D5DDE5;
+  --blue:#2B5C8A; --blue-soft:#E3EDF6; --red:#B8322A; --red-soft:#F8E6E4; --green:#2D7A4E; --green-soft:#E2F2E8;
+  --amber:#9A6A12; --amber-soft:#FBF0D9;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#141A21; --paper:#1D252E; --grid:#232D37; --ink:#E6ECF1; --muted:#98A6B3; --line:#313C47;
+    --blue:#7FB0DE; --blue-soft:#22364A; --red:#EF8A80; --red-soft:#43241F; --green:#7ACB9A; --green-soft:#1D3A29;
+    --amber:#E2B45C; --amber-soft:#3E3119;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#141A21; --paper:#1D252E; --grid:#232D37; --ink:#E6ECF1; --muted:#98A6B3; --line:#313C47;
+  --blue:#7FB0DE; --blue-soft:#22364A; --red:#EF8A80; --red-soft:#43241F; --green:#7ACB9A; --green-soft:#1D3A29;
+  --amber:#E2B45C; --amber-soft:#3E3119;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{
+  background-color:var(--bg);
+  background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);
+  background-size:22px 22px;
+  color:var(--ink); font-family:"Manrope",system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+  font-size:15px; line-height:1.45; font-variant-numeric:tabular-nums;
+}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+.wrap{max-width:780px;margin:0 auto;padding:20px 14px 90px}
+header{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;margin-bottom:12px;flex-wrap:wrap}
+h1{font-size:26px;line-height:1.15;margin:0;font-weight:800;letter-spacing:-.01em}
+.sub{color:var(--muted);font-size:13px;margin-top:4px}
+.ghost{border:1px solid var(--line);border-radius:10px;padding:7px 12px;background:var(--paper)}
+.sheet{background:var(--paper);border:1px solid var(--line);border-radius:14px}
+.tabs{display:flex;gap:4px;padding:4px;margin-bottom:12px;overflow-x:auto}
+.tabs button{flex:1;border:0;background:transparent;border-radius:10px;padding:9px 8px;font-weight:700;white-space:nowrap;color:var(--muted)}
+.tabs button[aria-selected="true"]{background:var(--blue);color:var(--paper)}
+.summary{display:grid;grid-template-columns:repeat(3,1fr);margin-bottom:12px;overflow:hidden}
+.summary div{padding:11px 14px;border-right:1px solid var(--line)}
+.summary div:last-child{border-right:0}
+.summary b{display:block;font-size:20px;font-weight:800}
+.summary span{font-size:12.5px;color:var(--muted)}
+.debt b{color:var(--red)} .pre b{color:var(--green)} .pend b{color:var(--amber)}
+.notice{padding:10px 14px;margin-bottom:12px;font-size:13.5px;background:var(--amber-soft);border-color:transparent}
+.box{padding:12px 14px;margin-bottom:12px}
+.box h2{font-size:16px;margin:0 0 6px;font-weight:800}
+.box .hint{margin:0 0 6px}
+.prow{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 0;border-top:1px solid var(--line);flex-wrap:wrap}
+.prow:first-of-type{border-top:0}
+.prow .who b{font-weight:700}
+.prow .who small{color:var(--muted);font-size:12.5px;margin-left:4px}
+.btns{display:flex;gap:6px;flex-wrap:wrap}
+.sm{border:1px solid var(--line);background:var(--paper);border-radius:8px;padding:5px 10px;font-size:13px;font-weight:600}
+.sm.done{background:var(--blue-soft);color:var(--blue);border-color:transparent}
+.sm.bad{color:var(--red)}
+.st-status{font-size:13px;font-weight:700}
+.st-status.done{color:var(--blue)} .st-status.cancel{color:var(--red)} .st-status.skip{color:var(--muted)} .st-status.open{color:var(--amber)}
+.list{overflow:hidden}
+.st{display:grid;grid-template-columns:1fr auto;gap:8px 12px;padding:12px 14px;border-top:1px solid var(--line);align-items:center}
+.st:first-child{border-top:0}
+.name{background:none;border:0;padding:0;text-align:left;font-weight:700;font-size:16px}
+.name small{display:block;font-weight:500;color:var(--muted);font-size:12.5px}
+.bal{text-align:right;font-weight:700;white-space:nowrap}
+.bal small{display:block;font-weight:500;font-size:12px;color:var(--muted)}
+.neg{color:var(--red)} .pos{color:var(--green)}
+.acts{grid-column:1/-1;display:flex;gap:6px}
+.act{flex:1;border:1px solid var(--line);background:var(--paper);border-radius:10px;padding:8px 6px;font-weight:600;font-size:14px}
+.act.lesson{background:var(--blue-soft);border-color:transparent;color:var(--blue)}
+.act.pay{background:var(--green-soft);border-color:transparent;color:var(--green)}
+.warn{color:var(--amber);font-weight:600}
+.addst{display:block;width:100%;border:0;border-top:1px dashed var(--line);background:transparent;padding:12px;color:var(--blue);font-weight:600}
+.monthbar{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.monthbar strong{flex:1;text-align:center;font-size:17px;text-transform:capitalize}
+/* calendar */
+.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.cal .wd{font-size:12px;color:var(--muted);text-align:center;padding-bottom:2px}
+.day{min-height:62px;border:1px solid var(--line);border-radius:9px;background:var(--paper);padding:4px 5px;text-align:left;display:flex;flex-direction:column;gap:3px}
+.day.out{visibility:hidden}
+.day.today{border-color:var(--blue);box-shadow:inset 0 0 0 1px var(--blue)}
+.day.sel{background:var(--blue-soft)}
+.day .n{font-size:13px;font-weight:700}
+.dots{display:flex;flex-wrap:wrap;gap:3px}
+.dot{width:8px;height:8px;border-radius:50%}
+.dot.done{background:var(--blue)} .dot.open{border:1.5px solid var(--amber)} .dot.cancel{background:var(--red)} .dot.skip{background:var(--line)} .dot.pay{background:var(--green);border-radius:2px}
+.legend{display:flex;gap:12px;flex-wrap:wrap;font-size:12.5px;color:var(--muted);margin-top:8px}
+.legend span{display:inline-flex;align-items:center;gap:5px}
+/* report */
+.rep{border-top:1px solid var(--line);padding:12px 0}
+.rep:first-of-type{border-top:0}
+.rep-h{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap}
+.rep-h b{font-size:16px}
+.rep-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:8px 0}
+.rep-grid div{border:1px solid var(--line);border-radius:9px;padding:6px 8px}
+.rep-grid b{display:block;font-size:15px}
+.rep-grid span{font-size:11.5px;color:var(--muted)}
+.bill{font-weight:700}
+@media (max-width:520px){.rep-grid{grid-template-columns:repeat(2,1fr)} .day{min-height:52px}}
+/* modal */
+.back{position:fixed;inset:0;background:rgba(10,16,22,.45);display:none;align-items:flex-end;justify-content:center;z-index:10}
+.back.open{display:flex}
+.modal{background:var(--paper);width:100%;max-width:560px;max-height:92vh;overflow:auto;border-radius:16px 16px 0 0;padding:18px 16px 22px}
+@media (min-width:640px){.back{align-items:center}.modal{border-radius:16px}}
+.modal h3{margin:0 0 12px;font-size:19px;font-weight:800}
+.seg{display:flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-bottom:12px}
+.seg button{flex:1;border:0;background:transparent;padding:9px 4px;font-weight:600}
+.seg button[aria-pressed="true"]{background:var(--blue);color:var(--paper)}
+.wdpick{display:flex;gap:4px}
+.wdpick button{flex:1;border:1px solid var(--line);background:var(--paper);border-radius:8px;padding:8px 0;font-weight:700}
+.wdpick button[aria-pressed="true"]{background:var(--blue);color:var(--paper);border-color:var(--blue)}
+label{display:block;font-size:13px;color:var(--muted);margin:10px 0 4px}
+input,select,textarea{width:100%;border:1px solid var(--line);background:var(--paper);border-radius:10px;padding:9px 10px}
+textarea{min-height:60px;resize:vertical}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.foot{display:flex;gap:8px;margin-top:16px;flex-wrap:wrap}
+.primary{flex:1;border:0;border-radius:10px;padding:11px;background:var(--blue);color:var(--paper);font-weight:700}
+.secondary{border:1px solid var(--line);border-radius:10px;padding:11px 14px;background:var(--paper)}
+.hint{font-size:12.5px;color:var(--muted);margin-top:6px}
+.stats{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin:10px 0}
+.stats div{border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.stats b{display:block;font-size:17px}
+.stats span{font-size:12px;color:var(--muted)}
+.ev{display:grid;grid-template-columns:78px 1fr auto;gap:8px;padding:8px 0;border-top:1px solid var(--line);align-items:start;font-size:14px}
+.ev .d{color:var(--muted);font-size:13px}
+.ev .t small{display:block;color:var(--muted);font-size:12.5px}
+.tag{display:inline-block;font-size:12px;font-weight:600;border-radius:6px;padding:1px 6px;margin-left:4px}
+.tag.p{background:var(--amber-soft);color:var(--amber)}
+.tag.c{background:var(--red-soft);color:var(--red)}
+.tag.f{background:var(--blue-soft);color:var(--blue)}
+.del{border:0;background:none;color:var(--muted);font-size:13px;padding:2px 4px}
+.del.sure{color:var(--red);font-weight:700}
+.empty{color:var(--muted);font-size:14px;padding:6px 0}
+@media (max-width:420px){.summary b{font-size:17px}.summary div{padding:10px}}
+@media (prefers-reduced-motion:no-preference){.modal{animation:up .18s ease-out}@keyframes up{from{transform:translateY(16px);opacity:.6}to{transform:none;opacity:1}}}
+.choice{display:grid;gap:8px;margin:4px 0 6px}
+.choice button{text-align:left;border:1px solid var(--line);background:var(--paper);border-radius:12px;padding:10px 12px}
+.choice button b{display:block;font-size:15px}
+.choice button span{font-size:12.5px;color:var(--muted)}
+.choice button[aria-pressed="true"]{border-color:var(--blue);box-shadow:inset 0 0 0 1px var(--blue);background:var(--blue-soft)}
+.st-status.moved{color:var(--blue)}
+.row3{display:grid;grid-template-columns:1.3fr 1fr 1fr;gap:8px}
+@media (max-width:420px){.row3{grid-template-columns:1fr 1fr}.row3>div:first-child{grid-column:1/-1}}
+.paybar{grid-column:1/-1;margin-top:2px}
+.track{height:8px;border-radius:99px;background:var(--grid);overflow:hidden}
+.fill{height:100%;border-radius:99px;background:var(--green)}
+.fill.neg{background:var(--red)}
+.paytxt{font-size:12.5px;color:var(--muted);margin-top:3px}
+.undo{border:1px solid var(--line);background:var(--paper);border-radius:8px;padding:5px 8px;font-size:13px;color:var(--muted)}
+.remind{display:flex;align-items:center;gap:8px;flex-wrap:wrap;border-top:1px solid var(--line);margin-top:10px;padding-top:10px;font-size:13.5px;color:var(--muted)}
+.remind input[type=time]{width:auto;padding:5px 8px}
+.remind label{margin:0;display:inline;font-size:13.5px}
+.alarm{background:var(--amber-soft);border-color:transparent}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.chip{border:1px solid var(--line);background:var(--paper);border-radius:99px;padding:5px 10px;font-size:13px}
+.movebar{position:sticky;top:0;z-index:5;background:var(--blue);color:#fff;border-radius:12px;padding:10px 12px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.movebar button{background:rgba(255,255,255,.2);border:0;color:#fff;border-radius:8px;padding:6px 10px;font-weight:600}
+.year{width:100%;border-collapse:collapse;font-size:14px}
+.year td,.year th{padding:6px 4px;border-bottom:1px solid var(--line);text-align:right}
+.year th:first-child,.year td:first-child{text-align:left;text-transform:capitalize}
+.year th{font-size:12px;color:var(--muted);font-weight:600}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Учёт занятий и оплат</h1>
+      <div class="sub" id="syncState">Загрузка…</div>
+    </div>
+    <div class="btns"><button class="ghost" id="backupBtn" type="button">Резервная копия</button><button class="ghost" id="themeBtn" type="button">Тема</button></div>
+  </header>
+
+  <div class="sheet tabs" role="tablist" id="tabs">
+    <button type="button" role="tab" data-tab="today">Сегодня</button>
+    <button type="button" role="tab" data-tab="cal">Календарь</button>
+    <button type="button" role="tab" data-tab="rep">Отчёт</button>
+    <button type="button" role="tab" data-tab="st">Ученики</button>
+  </div>
+
+  <div class="sheet summary">
+    <div class="debt"><b id="sumDebt">0 ₽</b><span>должны вам</span></div>
+    <div class="pre"><b id="sumPre">0 ₽</b><span>аванс у вас</span></div>
+    <div class="pend"><b id="sumPend">0</b><span>не отмечено</span></div>
+  </div>
+
+  <div class="sheet notice" id="setupNotice" hidden></div>
+  <main id="view"></main>
+</div>
+
+<div class="back" id="back" role="dialog" aria-modal="true">
+  <div class="modal" id="modal"></div>
+</div>
+
+<script>
+(function(){
+const DEFAULT_STUDENTS = [
+  ["Арина",1],["Катя",2],["Саша",2],["Миша",2],["Глеб",1],["Рома ШК",1],["Рома",2],["Вера",2]
+].map((s,i)=>({id:"s"+(i+1),name:s[0],perWeek:s[1],price:0,hours:1,note:"",mode:"",sched:[],archived:false}));
+
+let students = DEFAULT_STUDENTS.slice();
+let months = {};
+let db = null, mode = "loading";
+const LS_KEY = "tutor-ledger-v1";
+let tab = "today";
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const rub = n => Math.round(n).toLocaleString("ru-RU")+" ₽";
+const pad = n => String(n).padStart(2,"0");
+const ds = d => d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());
+const today = () => ds(new Date());
+const parse = s => { const [y,m,d]=s.split("-").map(Number); return new Date(y,m-1,d); };
+const addDays = (s,n) => { const d=parse(s); d.setDate(d.getDate()+n); return ds(d); };
+const uid = () => Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+const fmtDate = s => { const [y,m,d]=s.split("-"); return d+"."+m; };
+const fmtH = h => String(+(+h).toFixed(2)).replace(".",",")+" ч";
+const MONTHS = ["январь","февраль","март","апрель","май","июнь","июль","август","сентябрь","октябрь","ноябрь","декабрь"];
+const MONTHS_GEN = ["январе","феврале","марте","апреле","мае","июне","июле","августе","сентябре","октябре","ноябре","декабре"];
+const monthLabel = k => { const [y,m]=k.split("-"); return MONTHS[+m-1]+" "+y; };
+const WD = ["Вс","Пн","Вт","Ср","Чт","Пт","Сб"];
+const WD_ORDER = [1,2,3,4,5,6,0];
+const WD_LONG = ["воскресенье","понедельник","вторник","среда","четверг","пятница","суббота"];
+const plural = (n,a,b,c)=>{n=Math.abs(n)%100;const n1=n%10;if(n>10&&n<20)return c;if(n1>1&&n1<5)return b;if(n1===1)return a;return c;};
+const lessonsWord = n => n+" "+plural(n,"занятие","занятия","занятий");
+const MODES = {month:"за месяц вперёд",prepaid:"пакетом вперёд",after:"после занятий"};
+const shiftMonth=(k,d)=>{ let [y,m]=k.split("-").map(Number); m+=d; while(m<1){m+=12;y--;} while(m>12){m-=12;y++;} return y+"-"+pad(m); };
+const monthDates = k => { const [y,m]=k.split("-").map(Number); const n=new Date(y,m,0).getDate(); const r=[]; for(let i=1;i<=n;i++) r.push(k+"-"+pad(i)); return r; };
+const lastDay = k => monthDates(k).slice(-1)[0];
+const num = v => { const x=parseFloat(String(v).replace(",",".")); return isFinite(x)?x:0; };
+
+let calMonth=today().slice(0,7), selDay=today(), repMonth=today().slice(0,7);
+
+/* theme */
+(function(){
+  let t=null; try{t=localStorage.getItem("tutor-theme");}catch(e){}
+  if(t) document.documentElement.dataset.theme=t;
+  $("themeBtn").onclick=()=>{
+    const cur=document.documentElement.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");
+    const next=cur==="dark"?"light":"dark";
+    document.documentElement.dataset.theme=next;
+    try{localStorage.setItem("tutor-theme",next);}catch(e){}
+  };
+})();
+
+/* ---------- Telegram ---------- */
+const TG = (typeof window!=="undefined" && window.Telegram && window.Telegram.WebApp) ? window.Telegram.WebApp : null;
+if(TG){ try{ TG.ready(); TG.expand(); if(TG.colorScheme) document.documentElement.dataset.theme=TG.colorScheme; }catch(e){} }
+const CS = (TG && TG.CloudStorage && TG.CloudStorage.getKeys) ? TG.CloudStorage : null;
+const CHUNK=3500;
+function csSet(name,str){
+  return new Promise((res,rej)=>{
+    const parts=[]; for(let i=0;i<str.length;i+=CHUNK) parts.push(str.slice(i,i+CHUNK));
+    if(!parts.length) parts.push("");
+    let done=0,err=null;
+    CS.setItem(name+"__n",String(parts.length),()=>{});
+    parts.forEach((p,i)=>CS.setItem(name+"__"+i,p,e=>{ if(e)err=e; if(++done===parts.length){ err?rej(err):res();
+      CS.getKeys((e2,all)=>{ if(!all) return; const pref=name+"__"; const stale=all.filter(k=>k.indexOf(pref)===0 && k!==pref+"n" && +k.slice(pref.length)>=parts.length); if(stale.length) CS.removeItems(stale,()=>{}); });
+    }}));
+  });
+}
+function csGet(name){
+  return new Promise(res=>{
+    CS.getItem(name+"__n",(e,v)=>{
+      const n=+v||0; if(!n) return res(null);
+      const keys=[]; for(let i=0;i<n;i++) keys.push(name+"__"+i);
+      CS.getItems(keys,(e2,map)=>{ if(!map) return res(null); let out=""; for(let i=0;i<n;i++) out+=(map[name+"__"+i]||""); res(out); });
+    });
+  });
+}
+function csKeys(){ return new Promise(res=>CS.getKeys((e,k)=>res(k||[]))); }
+
+/* ---------- storage ---------- */
+let queue = Promise.resolve();
+function enqueue(fn){ queue = queue.then(fn).catch(err=>{ console.error(err); showError(err); }); return queue; }
+function showError(err){
+  $("syncState").textContent = err && err.code==="quota_exceeded" ? "Хранилище заполнено: удалите старые записи." :
+    "Не удалось сохранить. Проверьте соединение и повторите действие.";
+}
+function saveLocal(){ try{ localStorage.setItem(LS_KEY, JSON.stringify({students,months})); }catch(e){ $("syncState").textContent="Не удалось сохранить в браузере"; } }
+function saveStudents(){
+  if(mode==="cloud") return enqueue(()=>csSet("st",JSON.stringify(students)));
+  if(mode==="db") return enqueue(()=>db.doc("config/students").set({list:students}));
+  saveLocal();
+}
+function saveMonth(key){
+  if(mode==="cloud") return enqueue(()=>csSet("m"+key,JSON.stringify(months[key]||[])));
+  if(mode==="db") return enqueue(()=>db.doc("months/"+key).set({events:months[key]||[]}));
+  saveLocal();
+}
+function loadLocal(){
+  try{ const raw=localStorage.getItem(LS_KEY); if(raw){ const o=JSON.parse(raw); if(o.students) students=o.students; if(o.months) months=o.months; } }catch(e){}
+}
+function normStudents(){ students=students.map(s=>({mode:"",note:"",hours:1,pair:"",...s,sched:Array.isArray(s.sched)?s.sched:[],prices:Array.isArray(s.prices)?s.prices:[]})); }
+function rateAt(st,d){
+  let r=null;
+  (st.prices||[]).slice().sort((a,b)=>a.from<b.from?-1:1).forEach(p=>{ if(p.from<=d) r=p.price; });
+  return r!=null ? r : (st.price||0);
+}
+
+async function init(){
+  normStudents(); render();
+  if(CS){
+    mode="cloud";
+    $("syncState").textContent="Загрузка из Telegram…";
+    try{
+      const st=await csGet("st"); if(st){ students=JSON.parse(st); normStudents(); }
+      const keys=await csKeys();
+      const names=[...new Set(keys.filter(k=>/^m\d{4}-\d{2}__n$/.test(k)).map(k=>k.slice(0,k.indexOf("__"))))];
+      for(const nm of names){ const raw=await csGet(nm); if(raw) months[nm.slice(1)]=JSON.parse(raw); }
+      $("syncState").textContent="Сохраняется в Telegram, доступно на всех ваших устройствах";
+    }catch(e){ $("syncState").textContent="Не удалось загрузить данные из Telegram"; }
+    render(); return;
+  }
+  let d=null;
+  try{ d = window.claude && window.claude.use ? await window.claude.use("db") : null; }catch(e){ d=null; }
+  if(!d){ mode="local"; loadLocal(); normStudents(); $("syncState").textContent="Данные хранятся в этом браузере на этом компьютере"; render(); return; }
+  db=d; mode="db";
+  $("syncState").textContent="Синхронизация…";
+  const lost=()=>{ $("syncState").textContent="Связь с хранилищем потеряна — обновите страницу"; };
+  db.doc("config/students").onSnapshot(snap=>{
+    if(snap.exists){ const l=snap.data().list; if(Array.isArray(l)) { students=l.map(s=>({...s})); normStudents(); } }
+    $("syncState").textContent="Сохраняется автоматически";
+    render();
+  }, lost);
+  db.collection("months").onSnapshot(snap=>{
+    const next={};
+    snap.docs.forEach(doc=>{ const ev=(doc.data()||{}).events; next[doc.id]=Array.isArray(ev)?ev.map(x=>({...x})):[]; });
+    months=next; render();
+  }, lost);
+}
+
+/* ---------- mutations ---------- */
+function change(fn){
+  const before={}; for(const k in months) before[k]=JSON.stringify(months[k]);
+  fn();
+  const keys=new Set(Object.keys(before).concat(Object.keys(months)));
+  const changed=[...keys].filter(k=>JSON.stringify(months[k]||[])!==(before[k]||"[]"));
+  render();
+  if(mode==="local") saveLocal(); else changed.forEach(k=>{ if(!months[k]) months[k]=[]; saveMonth(k); });
+}
+function findEv(id){ for(const k in months){ const e=months[k].find(x=>x.id===id); if(e) return e; } return null; }
+function _add(ev){ const k=ev.date.slice(0,7); months[k]=(months[k]||[]).concat([ev]); }
+function _del(id){ for(const k in months){ if(months[k].some(e=>e.id===id)) months[k]=months[k].filter(e=>e.id!==id); } }
+function _set(id, f){
+  const old=findEv(id); if(!old) return;
+  const nw=f({...old}); _del(id); _add(nw);
+}
+/* remove an event and any not-yet-held makeup it produced */
+function _delCascade(id){
+  const e=findEv(id); if(!e) return;
+  if(e.child){ const c=findEv(e.child); if(c) _resetOrDelete(c); }
+  _del(id);
+}
+function _resetOrDelete(e){
+  if(e.slot==="makeup"){ _delCascadeChild(e); _del(e.id); }
+  else _delCascade(e.id);
+}
+function _delCascadeChild(e){ if(e.child){ const c=findEv(e.child); if(c) _resetOrDelete(c); } }
+
+/* ---------- model ---------- */
+const active = () => students.filter(s=>!s.archived);
+const allEvents = () => Object.values(months).flat();
+const byId = id => students.find(s=>s.id===id);
+const eventsOn = d => (months[d.slice(0,7)]||[]).filter(e=>e.date===d);
+function periodFor(st,d){
+  let cur=null;
+  (st.sched||[]).slice().sort((a,b)=>a.from<b.from?-1:1).forEach(p=>{ if(p.from<=d) cur=p; });
+  return cur;
+}
+const daysFor = (st,d) => { const p=periodFor(st,d); return p?p.days:[]; };
+const timeFor = (st,d) => { const p=periodFor(st,d); return p&&p.times ? (p.times[parse(d).getDay()]||"") : ""; };
+const durFor = (st,d) => { const p=periodFor(st,d); const w=parse(d).getDay(); return (p&&p.durs&&p.durs[w]) || st.hours || 1; };
+const hasSched = st => (st.sched||[]).some(p=>p.days&&p.days.length);
+const plannedOn = (st,d) => daysFor(st,d).includes(parse(d).getDay());
+const PLAN_TYPES=["lesson","cancel","skip","moved"];
+const planEvent = (st,d) => eventsOn(d).find(e=>e.sid===st.id && e.planned && e.slot!=="makeup" && PLAN_TYPES.includes(e.type));
+const endTime = (t,h) => { if(!t) return ""; const [H,M]=t.split(":").map(Number); const m=H*60+M+Math.round(h*60); return pad(Math.floor(m/60)%24)+":"+pad(m%60); };
+
+function slotsOn(d){
+  const out=[];
+  active().forEach(st=>{
+    if(plannedOn(st,d)){
+      const ev=planEvent(st,d);
+      out.push({st,d,kind:"plan",ev,time:timeFor(st,d),hours:(ev&&ev.hours)||durFor(st,d)});
+    }
+  });
+  eventsOn(d).forEach(e=>{
+    const st=byId(e.sid); if(!st||st.archived) return;
+    if(e.slot==="makeup") out.push({st,d,kind:"makeup",ev:e,time:e.time||"",hours:e.hours||durFor(st,d)});
+    else if(e.type==="lesson" && !e.planned) out.push({st,d,kind:"extra",ev:e,time:e.time||"",hours:e.hours||st.hours||1});
+    else if(e.type==="cancel" && !e.planned) out.push({st,d,kind:"extra",ev:e,time:e.time||"",hours:e.hours||st.hours||1});
+  });
+  return out.sort((a,b)=>(a.time||"99")<(b.time||"99")?-1:1);
+}
+function groupSlots(list){
+  const out=[], used=new Set();
+  list.forEach((sl,i)=>{
+    if(used.has(i)) return;
+    const g=[sl]; used.add(i);
+    list.forEach((o,j)=>{
+      if(used.has(j)||j===i) return;
+      if(sl.st.pair===o.st.id && o.st.pair===sl.st.id && (sl.time||"")===(o.time||"") && slotStatus(sl)===slotStatus(o) && sl.kind===o.kind){ g.push(o); used.add(j); }
+    });
+    out.push(g);
+  });
+  return out;
+}
+function slotStatus(sl){
+  if(!sl.ev) return "open";
+  if(sl.ev.type==="makeup") return "open";
+  return sl.ev.type;
+}
+function rateOf(ev,st){ return ev.price>0 ? ev.price : (st?st.price:0); }
+function hoursOf(ev,st){ return ev.hours>0 ? ev.hours : 1; }
+function costOf(ev, st){
+  if(ev.type==="lesson" || (ev.type==="cancel" && ev.status==="charged")) return hoursOf(ev,st)*rateOf(ev,st);
+  return 0;
+}
+function balanceOf(st, upTo){
+  let paid=0,cost=0,lessons=0,hours=0;
+  allEvents().forEach(ev=>{
+    if(ev.sid!==st.id || (upTo && ev.date>upTo)) return;
+    if(ev.type==="payment") paid+=+ev.amount||0;
+    else { cost+=costOf(ev,st); if(ev.type==="lesson"){ lessons++; hours+=hoursOf(ev,st); } }
+  });
+  return {paid,cost,balance:paid-cost,lessons,hours};
+}
+function planOf(st,key){
+  let count=0,hours=0,cost=0;
+  monthDates(key).forEach(d=>{ if(plannedOn(st,d)){ const e=planEvent(st,d); if(!e||e.type!=="skip"){ count++; const h=durFor(st,d); hours+=h; cost+=h*rateAt(st,d); } } });
+  return {count,hours,cost};
+}
+function monthStats(st,key){
+  const evs=(months[key]||[]).filter(e=>e.sid===st.id);
+  const p=planOf(st,key);
+  const r={plan:p.count,planH:p.hours,held:0,heldH:0,cancPaid:0,cancFree:0,cancPend:0,moved:0,skip:0,cost:0,paid:0};
+  evs.forEach(e=>{
+    if(e.type==="lesson"){ r.held++; r.heldH+=hoursOf(e,st); }
+    if(e.type==="cancel"){ if(e.status==="charged")r.cancPaid++; else if(e.status==="free")r.cancFree++; else r.cancPend++; }
+    if(e.type==="moved") r.moved++;
+    if(e.type==="skip") r.skip++;
+    if(e.type==="payment") r.paid+=+e.amount||0;
+    r.cost+=costOf(e,st);
+  });
+  r.unmarked=0;
+  monthDates(key).forEach(d=>{ if(d<today()) slotsOn(d).forEach(sl=>{ if(sl.st.id===st.id && slotStatus(sl)==="open") r.unmarked++; }); });
+  return r;
+}
+function unmarkedPast(){
+  const out=[]; const t=today();
+  for(let d=addDays(t,-62); d<t; d=addDays(d,1)) slotsOn(d).forEach(sl=>{ if(slotStatus(sl)==="open") out.push(sl); });
+  return out;
+}
+
+/* ---------- actions ---------- */
+function markDone(g){
+  const list=Array.isArray(g)?g:[g];
+  change(()=>{ list.forEach(sl=>{
+    const st=sl.st;
+    if(sl.kind==="makeup") _set(sl.ev.id, e=>({...e,type:"lesson",hours:sl.hours,price:rateAt(st,sl.d)||null}));
+    else _add({id:uid(),sid:st.id,date:sl.d,type:"lesson",planned:true,time:sl.time,hours:sl.hours,price:rateAt(st,sl.d)||null,comment:""});
+  }); });
+}
+function markDay(d){
+  change(()=>{
+    slotsOn(d).filter(sl=>slotStatus(sl)==="open").forEach(sl=>{
+      const st=sl.st;
+      if(sl.kind==="makeup") _set(sl.ev.id, e=>({...e,type:"lesson",hours:sl.hours,price:rateAt(st,d)||null}));
+      else _add({id:uid(),sid:st.id,date:d,type:"lesson",planned:true,time:sl.time,hours:sl.hours,price:rateAt(st,d)||null,comment:""});
+    });
+  });
+}
+/* undo a slot's mark: plan slot -> delete event; makeup slot -> back to "ожидается" */
+function undoSlot(ev){
+  change(()=>{
+    const e=findEv(ev.id); if(!e) return;
+    if(e.child){ const c=findEv(e.child); if(c) _resetOrDelete(c); }
+    if(e.slot==="makeup"){
+      _set(e.id, x=>{ const n={id:x.id,sid:x.sid,date:x.date,slot:"makeup",type:"makeup",time:x.time,hours:x.hours,fromDate:x.fromDate,parent:x.parent,comment:x.comment||""}; return n; });
+    } else _del(e.id);
+  });
+}
+
+/* ---------- reminder (works while the app is open) ---------- */
+let rem={on:false,time:"21:15",fired:""};
+try{ const r=JSON.parse(localStorage.getItem("tutor-reminder")||"null"); if(r) rem={...rem,...r}; }catch(e){}
+function saveRem(){ try{ localStorage.setItem("tutor-reminder",JSON.stringify(rem)); }catch(e){} }
+function bindRemind(){
+  const c=$("remOn"), t=$("remTime"), st=$("remState");
+  if(!c||!t) return;
+  const info=()=>{ if(!st) return;
+    st.textContent = !rem.on ? "" : (typeof Notification!=="undefined" && Notification.permission==="granted" ? "· работает, пока приложение открыто" : "· появится в приложении");
+  };
+  c.onchange=()=>{ rem.on=c.checked; rem.fired=""; saveRem();
+    if(rem.on && typeof Notification!=="undefined" && Notification.permission==="default") Notification.requestPermission().then(info);
+    else info(); };
+  t.onchange=()=>{ rem.time=t.value||"21:15"; rem.fired=""; saveRem(); };
+  info();
+}
+function checkRemind(){
+  if(!rem.on) return;
+  const now=new Date(), hm=pad(now.getHours())+":"+pad(now.getMinutes());
+  if(hm<rem.time || rem.fired===today()) return;
+  const n=slotsOn(today()).filter(sl=>slotStatus(sl)==="open").length;
+  rem.fired=today(); saveRem();
+  if(!n) return;
+  try{ if(typeof Notification!=="undefined" && Notification.permission==="granted") new Notification("Учёт занятий", {body:"Не отмечено занятий сегодня: "+n}); }catch(e){}
+  const b=$("setupNotice"); if(b){ b.hidden=false; b.classList.add("alarm"); b.innerHTML="Не отмечено занятий сегодня: "+n+". Откройте вкладку «Сегодня»."; }
+}
+setInterval(checkRemind, 30000);
+
+/* ---------- перенос выбором дня в календаре ---------- */
+let moveGroup=null;
+function startMove(g){ moveGroup=g; tab="cal"; calMonth=g[0].d.slice(0,7); render(); }
+function finishMove(d){
+  const g=moveGroup; moveGroup=null;
+  if(!g) return;
+  const sl=g[0];
+  detailSid=null;
+  openModal(`<h3>Перенести на ${fmtDate(d)}</h3>
+    <div class="hint" style="margin-top:-6px">${esc(g.map(x=>x.st.name).join(" и "))} · было ${fmtDate(sl.d)}${sl.time?" "+sl.time:""}</div>
+    <div class="row3">
+      <div><label for="fmTime">Время</label><input type="time" id="fmTime" step="300" value="${sl.time||""}"></div>
+      <div><label for="fmH">Часов</label>${hoursInput("fmH",sl.hours)}</div>
+    </div>
+    <label for="fmCom">Комментарий</label><input id="fmCom" placeholder="Необязательно">
+    <div class="foot"><button class="secondary" type="button" id="fmClose">Отмена</button><button class="primary" type="button" id="fmSave">Перенести</button></div>`);
+  $("fmClose").onclick=()=>{ closeModal(); render(); };
+  $("fmSave").onclick=()=>{
+    const tm=$("fmTime").value, h=num($("fmH").value)||sl.hours, comment=$("fmCom").value.trim();
+    change(()=>g.forEach(one=>{
+      const childId=uid();
+      if(one.ev) _set(one.ev.id,x=>({...x,type:"moved",toDate:d,toTime:tm,child:childId,comment}));
+      else _add({id:uid(),sid:one.st.id,date:one.d,type:"moved",planned:true,time:one.time,hours:one.hours,toDate:d,toTime:tm,child:childId,comment});
+      _add({id:childId,sid:one.st.id,date:d,slot:"makeup",type:"makeup",time:tm,hours:h,fromDate:one.d,parent:one.ev?one.ev.id:null,comment:""});
+    }));
+    closeModal();
+  };
+}
+
+/* ---------- render ---------- */
+function render(){
+  document.querySelectorAll("#tabs button").forEach(b=>b.setAttribute("aria-selected",b.dataset.tab===tab));
+  let debt=0,pre=0;
+  active().forEach(st=>{ const b=balanceOf(st).balance; if(b<0)debt+=-b; else pre+=b; });
+  $("sumDebt").textContent=rub(debt); $("sumPre").textContent=rub(pre);
+  const pendC=allEvents().filter(e=>e.type==="cancel"&&e.status==="pending").length;
+  $("sumPend").textContent=unmarkedPast().length+pendC;
+
+  const miss=[];
+  const np=active().filter(s=>!(s.price>0)).map(s=>s.name);
+  const nd=active().filter(s=>!hasSched(s)).map(s=>s.name);
+  const nm=active().filter(s=>!s.mode).map(s=>s.name);
+  if(np.length) miss.push("<b>цена за час</b>: "+np.map(esc).join(", "));
+  if(nd.length) miss.push("<b>дни занятий</b>: "+nd.map(esc).join(", "));
+  if(nm.length) miss.push("<b>способ оплаты</b>: "+nm.map(esc).join(", "));
+  const n=$("setupNotice");
+  let html = miss.length ? "Чтобы календарь и отчёт считались, заполните в «Ученики» → имя → «Настройки»: "+miss.join("; ")+"." : "";
+  if(mode==="local"){
+    let lb=null; try{ lb=localStorage.getItem("tutor-last-backup"); }catch(e){}
+    if(allEvents().length>0 && (!lb || (Date.now()-(+lb))>14*864e5))
+      html += (html?"<br>":"")+"Давно не было резервной копии. Нажмите «Резервная копия» → «Скачать файл», чтобы записи не потерялись.";
+  }
+  n.hidden=!html; n.innerHTML=html;
+
+  const v=$("view");
+  if(tab==="today") v.innerHTML=viewToday();
+  else if(tab==="cal") v.innerHTML=viewCal();
+  else if(tab==="rep") v.innerHTML=viewRep();
+  else v.innerHTML=viewStudents();
+
+  if(tab==="today") bindRemind();
+  if(detailSid && $("back").classList.contains("open") && $("det")) renderDetail();
+}
+
+let slotRegistry={};
+function slotRow(g){
+  const group=Array.isArray(g)?g:[g], sl=group[0];
+  const key="k"+Object.keys(slotRegistry).length; slotRegistry[key]=group; sl.setKey=true;
+  const s=slotStatus(sl), e=sl.ev, st=sl.st;
+  const names=group.map(x=>x.st.name).join(" и ");
+  const timeTxt = sl.time ? sl.time+"–"+endTime(sl.time,sl.hours) : fmtH(sl.hours);
+  let sub = timeTxt + (sl.time?" · "+fmtH(sl.hours):"");
+  if(sl.kind==="makeup") sub += " · перенос с "+fmtDate(sl.ev.fromDate||sl.d);
+  if(sl.kind==="extra") sub += " · доп. занятие";
+  const who=`<div class="who"><b>${esc(names)}</b><small>${sub}${group.length>1?" · пара":""}</small></div>`;
+  if(s==="open") return `<div class="prow">${who}<div class="btns">
+    <button class="sm done" type="button" data-done="${key}">Проведено</button>
+    <button class="sm" type="button" data-move="${key}" title="Перенести в календаре">⇄</button>
+    <button class="sm" type="button" data-miss="${key}">Не состоялось</button></div></div>`;
+  let label="";
+  if(s==="lesson") label=`<span class="st-status done">проведено${st.price>0?" · "+rub(costOf(e,st)):""}</span>`;
+  else if(s==="moved") label = e.toDate ? `<span class="st-status moved">перенесено на ${fmtDate(e.toDate)}${e.toTime?" "+e.toTime:""}</span>` : `<span class="st-status open">перенос — дата не назначена</span>${sl.setKey?`<button class="sm done" type="button" data-setdate="${e.id}">Назначить</button>`:""}`;
+  else if(s==="skip") label=`<span class="st-status skip">не было (каникулы)</span>`;
+  else if(s==="cancel") label = e.status==="charged" ? `<span class="st-status cancel">отмена с оплатой</span>` : e.status==="free" ? `<span class="st-status cancel">отмена без оплаты</span>` : `<span class="st-status open">отмена — выберите</span>`;
+  return `<div class="prow">${who}<div class="btns">${label}<button class="sm" type="button" data-edit="${key}">Изменить</button><button class="undo" type="button" data-undo="${key}" title="Снять отметку" aria-label="Снять отметку">↺</button></div></div>`;
+}
+
+function viewToday(){
+  slotRegistry={};
+  const t=today();
+  const sl=slotsOn(t);
+  let h=`<div class="sheet box"><h2>Сегодня, ${WD_LONG[new Date().getDay()]}</h2>`;
+  h += sl.length ? groupSlots(sl).map(slotRow).join("") : '<div class="empty">Занятий нет.</div>';
+  h+=`<div class="foot" style="margin-top:8px"><button class="secondary" type="button" data-new="${t}">Доп. занятие или оплата</button></div>
+    <div class="remind"><label><input type="checkbox" id="remOn" ${rem.on?"checked":""} style="width:auto;margin-right:6px">Напоминать отметить занятия в</label>
+      <input type="time" id="remTime" step="300" value="${rem.time}"> <span id="remState"></span></div></div>`;
+
+  const um=unmarkedPast();
+  if(um.length){
+    const byDay={}; um.forEach(x=>{(byDay[x.d]=byDay[x.d]||[]).push(x);});
+    h+=`<div class="sheet box"><h2>Не отмечено</h2><div class="hint">Прошедшие занятия без отметки.</div>`;
+    Object.keys(byDay).sort().reverse().forEach(d=>{
+      h+=`<div class="prow" style="background:var(--bg);margin:6px -14px 0;padding:6px 14px"><b>${fmtDate(d)}, ${WD[parse(d).getDay()]}</b>
+        <button class="sm done" type="button" data-allday="${d}">Все проведены</button></div>`;
+      h+=groupSlots(byDay[d]).map(slotRow).join("");
+    });
+    h+="</div>";
+  }
+  const waiting=allEvents().filter(e=>e.type==="moved"&&!e.toDate).sort((a,b)=>a.date<b.date?-1:1);
+  if(waiting.length){
+    h+=`<div class="sheet box"><h2>Ждут переноса</h2><div class="hint">Занятие не состоялось, дату ещё не выбрали.</div>`+waiting.map(e=>{
+      const st=byId(e.sid);
+      return `<div class="prow"><div class="who"><b>${esc(st?st.name:"?")}</b><small>с ${fmtDate(e.date)}${e.time?" "+e.time:""} · ${fmtH(e.hours||1)}${e.comment?" · "+esc(e.comment):""}</small></div>
+      <div class="btns"><button class="sm done" type="button" data-setdate="${e.id}">Назначить дату</button>
+      <button class="undo" type="button" data-undomoved="${e.id}" title="Убрать перенос">↺</button></div></div>`;
+    }).join("")+"</div>";
+  }
+  const pend=allEvents().filter(e=>e.type==="cancel"&&e.status==="pending").sort((a,b)=>a.date<b.date?-1:1);
+  if(pend.length){
+    h+=`<div class="sheet box"><h2>Старые отмены без решения</h2>`+pend.map(e=>{
+      const st=byId(e.sid);
+      return `<div class="prow"><div class="who"><b>${esc(st?st.name:"?")}</b><small>${fmtDate(e.date)}</small></div>
+      <div class="btns"><button class="sm" type="button" data-free="${e.id}">Без оплаты</button>
+      <button class="sm bad" type="button" data-charge="${e.id}">С оплатой</button></div></div>`;
+    }).join("")+"</div>";
+  }
+  return h;
+}
+
+function viewCal(){
+  slotRegistry={};
+  const dates=monthDates(calMonth); const t=today();
+  const offset=(parse(dates[0]).getDay()+6)%7;
+  let cells=WD_ORDER.map(w=>`<div class="wd">${WD[w]}</div>`).join("");
+  for(let i=0;i<offset;i++) cells+='<div class="day out"></div>';
+  dates.forEach(d=>{
+    let dots="";
+    slotsOn(d).forEach(sl=>{ const s=slotStatus(sl); dots+=`<i class="dot ${s==="lesson"?"done":s==="moved"?"skip":s}"></i>`; });
+    cells+=`<button type="button" class="day ${d===t?"today":""} ${d===selDay?"sel":""}" data-day="${d}" aria-label="${fmtDate(d)}"><span class="n">${+d.slice(8)}</span><span class="dots">${dots}</span></button>`;
+  });
+  let h = moveGroup ? `<div class="movebar"><span>Выберите новый день для: ${esc(moveGroup.map(x=>x.st.name).join(" и "))}</span><button type="button" data-movecancel="1">Отмена</button></div>` : "";
+  h+=`<div class="sheet box"><div class="monthbar"><button class="sm" type="button" data-cm="-1" aria-label="Предыдущий месяц">‹</button><strong>${monthLabel(calMonth)}</strong><button class="sm" type="button" data-cm="1" aria-label="Следующий месяц">›</button></div>
+    <div class="cal">${cells}</div>
+    <div class="legend"><span><i class="dot done"></i>проведено</span><span><i class="dot open"></i>по плану</span><span><i class="dot cancel"></i>отмена</span><span><i class="dot skip"></i>перенос / каникулы</span></div></div>`;
+  if(selDay && selDay.slice(0,7)===calMonth){
+    const sl=slotsOn(selDay);
+    h+=`<div class="sheet box"><h2>${fmtDate(selDay)}, ${WD_LONG[parse(selDay).getDay()]}</h2>`;
+    h+= sl.length ? groupSlots(sl).map(slotRow).join("") : '<div class="empty">Занятий нет.</div>';
+    h+=`<div class="hint">Каникулы можно отметить заранее: «Не состоялось» → «Каникулы». Такие дни не войдут в счёт за месяц.</div>
+      <div class="foot" style="margin-top:8px"><button class="secondary" type="button" data-new="${selDay}">Доп. занятие или оплата</button></div></div>`;
+  }
+  return h;
+}
+
+function reportFor(st,key){
+  const m=monthStats(st,key);
+  const bal=balanceOf(st,lastDay(key)).balance;
+  const next=shiftMonth(key,1);
+  const r={m,bal,next,bill:0,billText:""};
+  if(st.mode==="month"){
+    const p=planOf(st,next);
+    const total=p.cost;
+    r.bill=Math.max(0,total-bal);
+    r.billText=`За ${monthLabel(next)}: ${lessonsWord(p.count)}, ${fmtH(p.hours)} = ${rub(total)}`+(bal>0?`, минус аванс ${rub(bal)}`:bal<0?`, плюс долг ${rub(-bal)}`:"")+` → к оплате ${rub(r.bill)}`;
+  } else if(st.mode==="prepaid"){
+    const left = st.price>0 ? Math.max(bal,0)/st.price : 0;
+    r.bill = bal<0 ? -bal : 0;
+    r.billText = bal<0 ? `Долг ${rub(-bal)}` : `Осталось оплачено: ${fmtH(Math.floor(left*2)/2)}`;
+  } else {
+    r.bill = bal<0 ? -bal : 0;
+    r.billText = bal<0 ? `К оплате ${rub(-bal)}` : bal>0 ? `Аванс ${rub(bal)}` : "Всё оплачено";
+  }
+  return r;
+}
+
+function viewRep(){
+  let tot={heldH:0,cost:0,paid:0,bill:0};
+  const rows=active().map(st=>{
+    const r=reportFor(st,repMonth), m=r.m;
+    tot.heldH+=m.heldH; tot.cost+=m.cost; tot.paid+=m.paid; tot.bill+=r.bill||0;
+    const parts=[m.moved?m.moved+" перенос":"",m.cancFree?m.cancFree+" отмена без опл.":"",m.cancPaid?m.cancPaid+" отмена с опл.":"",m.cancPend?m.cancPend+" без решения":""].filter(Boolean);
+    const balCls=r.bal<0?"neg":r.bal>0?"pos":"";
+    return `<div class="rep"><div class="rep-h"><b>${esc(st.name)}</b><span class="hint" style="margin:0">${MODES[st.mode]||'<span class="warn">способ оплаты не указан</span>'}${st.price>0?" · "+rub(st.price)+"/ч":""}</span></div>
+      <div class="rep-grid">
+        <div><b>${m.held} из ${m.plan}</b><span>занятий проведено / план</span></div>
+        <div><b>${fmtH(m.heldH)}</b><span>часов из ${fmtH(m.planH)}</span></div>
+        <div><b>${rub(m.cost)}</b><span>стоимость</span></div>
+        <div><b>${rub(m.paid)}</b><span>оплачено</span></div>
+      </div>
+      ${parts.length?`<div class="hint" style="margin:0 0 4px">${parts.join(" · ")}</div>`:""}
+      <div>Баланс на конец месяца: <b class="${balCls}">${r.bal<0?"долг "+rub(-r.bal):r.bal>0?"аванс "+rub(r.bal):"0 ₽"}</b></div>
+      <div class="bill">${r.billText}</div>
+      ${m.unmarked?`<div class="hint warn">Не отмечено занятий: ${m.unmarked} — отчёт может быть неточным.</div>`:""}
+      <div class="btns" style="margin-top:8px"><button class="sm" type="button" data-msg="${st.id}">Текст для родителей</button></div></div>`;
+  }).join("");
+  return `<div class="sheet box"><div class="monthbar"><button class="sm" type="button" data-rm="-1" aria-label="Предыдущий месяц">‹</button><strong>Отчёт: ${monthLabel(repMonth)}</strong><button class="sm" type="button" data-rm="1" aria-label="Следующий месяц">›</button></div>
+    <div class="rep-grid">
+      <div><b>${fmtH(tot.heldH)}</b><span>проведено часов</span></div>
+      <div><b>${rub(tot.cost)}</b><span>заработано</span></div>
+      <div><b>${rub(tot.paid)}</b><span>получено</span></div>
+      <div><b>${rub(tot.bill)}</b><span>выставить к оплате</span></div>
+    </div></div>
+    <div class="sheet box">${rows}</div>
+    ${viewYear(repMonth.slice(0,4))}`;
+}
+function viewYear(y){
+  let rowsH="", totH=0, totC=0, totP=0;
+  for(let i=1;i<=12;i++){
+    const k=y+"-"+pad(i);
+    let h=0,c=0,p=0;
+    active().concat(students.filter(s=>s.archived)).forEach(st=>{
+      (months[k]||[]).filter(e=>e.sid===st.id).forEach(e=>{
+        if(e.type==="lesson") h+=hoursOf(e,st);
+        if(e.type==="payment") p+=+e.amount||0;
+        c+=costOf(e,st);
+      });
+    });
+    if(!h && !c && !p) continue;
+    totH+=h; totC+=c; totP+=p;
+    rowsH+=`<tr><td>${MONTHS[i-1]}</td><td>${fmtH(h)}</td><td>${rub(c)}</td><td>${rub(p)}</td></tr>`;
+  }
+  if(!rowsH) return "";
+  return `<div class="sheet box"><h2>Год ${y}</h2>
+    <table class="year"><tr><th>Месяц</th><th>Часов</th><th>Заработано</th><th>Получено</th></tr>${rowsH}
+    <tr><th>Итого</th><th>${fmtH(totH)}</th><th>${rub(totC)}</th><th>${rub(totP)}</th></tr></table></div>`;
+}
+
+function parentText(st,key){
+  const r=reportFor(st,key), m=r.m, [y,mm]=key.split("-");
+  let t=`Добрый день! Отчёт по занятиям (${st.name}) за ${MONTHS[+mm-1]} ${y}.\n`;
+  t+=`Проведено: ${lessonsWord(m.held)}, ${fmtH(m.heldH)}`+(st.price>0?` по ${rub(st.price)} в час`:"")+`.\n`;
+  if(m.moved) t+=`Перенесено: ${m.moved}.\n`;
+  if(m.cancFree+m.cancPaid) t+=`Отмены: ${m.cancFree+m.cancPaid}`+(m.cancPaid?` (оплачиваемых: ${m.cancPaid})`:"")+`.\n`;
+  t+=`Стоимость за месяц: ${rub(m.cost)}. Оплачено в ${MONTHS_GEN[+mm-1]}: ${rub(m.paid)}.\n`;
+  if(st.mode==="month") t+=r.billText.replace(/^За /,"Оплата за ")+".";
+  else if(st.mode==="prepaid") t+= r.bal<0 ? `Нужно доплатить: ${rub(-r.bal)}.` : r.billText+".";
+  else t+= r.bal<0 ? `К оплате: ${rub(-r.bal)}.` : r.bal>0 ? `Аванс на следующие занятия: ${rub(r.bal)}.` : "Все занятия оплачены.";
+  return t;
+}
+
+function schedText(st){
+  const p=periodFor(st,today()); if(!p||!p.days.length) return `<span class="warn">дни не выбраны</span>`;
+  return WD_ORDER.filter(w=>p.days.includes(w)).map(w=>{
+    const t=p.times&&p.times[w]; const h=(p.durs&&p.durs[w])||st.hours||1;
+    return WD[w]+(t?" "+t:"")+(h!==1?" ("+fmtH(h)+")":"");
+  }).join(", ");
+}
+/* сколько оплачено вперёд: до какой даты хватает аванса */
+function paidUntil(st,bal){
+  if(!(st.price>0) || bal<=0) return null;
+  let left=bal, last=null;
+  for(let i=0;i<200;i++){
+    const d=addDays(today(),i);
+    if(!plannedOn(st,d)) continue;
+    const e=planEvent(st,d); if(e && (e.type==="skip"||e.type==="moved")) continue;
+    const c=durFor(st,d)*rateAt(st,d);
+    if(left+1e-6 < c) break;
+    left-=c; last=d;
+  }
+  return last;
+}
+function payBar(st){
+  const bal=balanceOf(st).balance;
+  const monthCost=planOf(st,today().slice(0,7)).cost || (st.price||0)*4;
+  if(!(st.price>0)) return `<div class="paybar"><div class="paytxt">Укажите цену за час, чтобы видеть шкалу оплаты.</div></div>`;
+  const ratio=monthCost>0?Math.min(1,Math.abs(bal)/monthCost):0;
+  const until=paidUntil(st,bal);
+  let txt;
+  if(bal>0) txt=`Оплачено вперёд ${rub(bal)}`+(until?` · хватит по ${fmtDate(until)}`:"")+` · ${Math.round(ratio*100)}% месяца`;
+  else if(bal<0) txt=`Долг ${rub(-bal)} · ${Math.round(ratio*100)}% от стоимости месяца`;
+  else txt="В расчёте: долга и аванса нет";
+  return `<div class="paybar"><div class="track"><div class="fill ${bal<0?"neg":""}" style="width:${Math.round(ratio*100)}%"></div></div><div class="paytxt">${txt}</div></div>`;
+}
+function viewStudents(){
+  const rows=active().map(st=>{
+    const b=balanceOf(st);
+    let cls="", main="в расчёте", extra="";
+    if(b.balance<0){ cls="neg"; main="долг "+rub(-b.balance); }
+    else if(b.balance>0){ cls="pos"; main="аванс "+rub(b.balance); if(st.price>0) extra="≈ "+fmtH(Math.floor(b.balance/st.price*2)/2); }
+    const priceTxt = st.price>0 ? rub(st.price)+"/ч" : '<span class="warn">цена?</span>';
+    return `<div class="st">
+      <button class="name" type="button" data-open="${st.id}">${esc(st.name)}
+        <small>${schedText(st)} · ${priceTxt} · ${MODES[st.mode]||'<span class="warn">оплата?</span>'}</small></button>
+      <div class="bal ${cls}">${main}<small>${extra||"&nbsp;"}</small></div>
+      ${payBar(st)}
+      <div class="acts">
+        <button class="act lesson" type="button" data-q="lesson" data-sid="${st.id}">+ Доп. занятие</button>
+        <button class="act pay" type="button" data-q="payment" data-sid="${st.id}">+ Оплата</button>
+      </div></div>`;
+  }).join("");
+  return `<div class="sheet list">${rows}<button class="addst" type="button" id="addSt">Добавить ученика</button><button class="addst" type="button" id="impSched">Импорт расписания</button></div>`;
+}
+
+document.addEventListener("click",e=>{
+  const t=e.target.closest("button"); if(!t) return;
+  const a=t.dataset;
+  if(a.tab){ tab=a.tab; render(); }
+  else if(a.done && slotRegistry[a.done]) markDone(slotRegistry[a.done]);
+  else if(a.miss && slotRegistry[a.miss]) openMiss(slotRegistry[a.miss]);
+  else if(a.edit && slotRegistry[a.edit]) openSlotEdit(slotRegistry[a.edit][0]);
+  else if(a.undo && slotRegistry[a.undo]) slotRegistry[a.undo].forEach(x=>undoSlot(x.ev));
+  else if(a.move && slotRegistry[a.move]) startMove(slotRegistry[a.move]);
+  else if(a.movecancel){ moveGroup=null; render(); }
+  else if(a.setdate) openSetDate(a.setdate);
+  else if(a.undomoved) undoSlot(findEv(a.undomoved));
+  else if(a.allday) markDay(a.allday);
+  else if(a.charge) change(()=>_set(a.charge,x=>({...x,status:"charged",hours:x.hours||1})));
+  else if(a.free) change(()=>_set(a.free,x=>({...x,status:"free"})));
+  else if(a.day){ if(moveGroup) finishMove(a.day); else { selDay=a.day; render(); } }
+  else if(a.cm){ calMonth=shiftMonth(calMonth,+a.cm); selDay=calMonth===today().slice(0,7)?today():calMonth+"-01"; render(); }
+  else if(a.rm){ repMonth=shiftMonth(repMonth,+a.rm); render(); }
+  else if(a.msg) openParentMsg(a.msg);
+  else if(a.new) openEventForm(null,"lesson",a.new);
+  else if(a.q) openEventForm(a.sid,a.q);
+  else if(a.open) openDetail(a.open);
+  else if(t.id==="addSt") openStudentForm(null);
+  else if(t.id==="impSched") openImport();
+});
+
+/* ---------- modal ---------- */
+let detailSid=null, detailMonth=today().slice(0,7), pendingDelete=null;
+function openModal(html){ $("modal").innerHTML=html; $("back").classList.add("open"); const f=$("modal").querySelector("input,select,button"); if(f) f.focus(); }
+function closeModal(){ $("back").classList.remove("open"); detailSid=null; pendingDelete=null; }
+$("back").addEventListener("click",e=>{ if(e.target.id==="back") closeModal(); });
+document.addEventListener("keydown",e=>{ if(e.key==="Escape") closeModal(); });
+
+function hoursInput(id,val){ return `<input id="${id}" type="number" min="0.5" step="0.5" inputmode="decimal" value="${val}">`; }
+
+/* «Не состоялось» */
+function openMiss(g){
+  const group=Array.isArray(g)?g:[g], sl=group[0];
+  detailSid=null;
+  const st=sl.st;
+  const opts=[
+    ["moved","Перенос — дата известна","Занятие будет в другой день или время"],
+    ["later","Перенос — дату уточним","Занятие висит в списке, дату назначите позже"],
+    ["free","Отмена без оплаты","Предупредили заранее, болезнь, отменили вы"],
+    ["charged","Отмена с оплатой","Поздно предупредили или не пришёл"],
+  ];
+  if(sl.kind==="plan") opts.push(["skip","Каникулы / выходной","Занятия не планировалось, в счёт месяца не входит"]);
+  openModal(`<h3>Не состоялось</h3>
+    <div class="hint" style="margin-top:-6px">${esc(group.map(x=>x.st.name).join(" и "))} · ${fmtDate(sl.d)}${sl.time?" "+sl.time:""} · ${fmtH(sl.hours)}</div>
+    <div class="choice" id="mc">${opts.map(o=>`<button type="button" data-o="${o[0]}"><b>${o[1]}</b><span>${o[2]}</span></button>`).join("")}</div>
+    <div id="mvFields" hidden>
+      <div class="row3">
+        <div><label for="mvDate">Новая дата</label><input type="date" id="mvDate" value="${addDays(sl.d,1)}"></div>
+        <div><label for="mvTime">Время</label><input type="time" id="mvTime" step="300" value="${sl.time||""}"></div>
+        <div><label for="mvH">Часов</label>${hoursInput("mvH",sl.hours)}</div>
+      </div>
+    </div>
+    <div id="chFields" hidden><label for="chH">Оплачиваемых часов</label>${hoursInput("chH",sl.hours)}
+      <div class="hint">${st.price>0?"Спишется "+rub(sl.hours*st.price)+".":"Цена за час не указана."}</div></div>
+    <label for="mCom">Комментарий</label><input id="mCom" placeholder="Необязательно">
+    <div class="hint" id="mErr"></div>
+    <div class="foot"><button class="secondary" type="button" id="mClose">Закрыть</button><button class="primary" type="button" id="mSave" disabled>Сохранить</button></div>`);
+  let choice=null;
+  $("mc").onclick=e=>{ const b=e.target.closest("button"); if(!b) return; choice=b.dataset.o;
+    $("mc").querySelectorAll("button").forEach(x=>x.setAttribute("aria-pressed",x===b));
+    $("mvFields").hidden=choice!=="moved"; $("chFields").hidden=choice!=="charged"; $("mSave").disabled=false; };
+  $("chH").oninput=()=>{ const h=num($("chH").value); $("chFields").querySelector(".hint").textContent = st.price>0?"Спишется "+rub(h*st.price)+".":"Цена за час не указана."; };
+  $("mClose").onclick=closeModal;
+  $("mSave").onclick=()=>{
+    if(!choice) return;
+    const comment=$("mCom").value.trim();
+    const applyAll=fn=>group.forEach(fn);
+    if(choice==="moved"){
+      const nd=$("mvDate").value, nt=$("mvTime").value, nh=num($("mvH").value)||sl.hours;
+      if(!nd){ $("mErr").textContent="Укажите новую дату."; return; }
+      if(nd===sl.d && nt===sl.time){ $("mErr").textContent="Новая дата и время совпадают со старыми."; return; }
+      change(()=>applyAll(one=>{
+        const childId=uid();
+        if(one.ev) _set(one.ev.id,x=>({...x,type:"moved",toDate:nd,toTime:nt,child:childId,comment}));
+        else _add({id:uid(),sid:one.st.id,date:one.d,type:"moved",planned:true,time:one.time,hours:one.hours,toDate:nd,toTime:nt,child:childId,comment});
+        _add({id:childId,sid:one.st.id,date:nd,slot:"makeup",type:"makeup",time:nt,hours:nh,fromDate:one.d,parent:one.ev?one.ev.id:null,comment:""});
+      }));
+    } else if(choice==="later"){
+      change(()=>applyAll(one=>{
+        if(one.ev) _set(one.ev.id,x=>({...x,type:"moved",toDate:null,toTime:"",child:null,hours:one.hours,comment}));
+        else _add({id:uid(),sid:one.st.id,date:one.d,type:"moved",planned:true,time:one.time,hours:one.hours,toDate:null,toTime:"",comment});
+      }));
+    } else {
+      const chH = choice==="charged" ? (num($("chH").value)||sl.hours) : null;
+      change(()=>applyAll(one=>{
+        const pt = choice==="skip" ? {type:"skip"} :
+          {type:"cancel",status:choice,hours:chH!=null?chH:one.hours,price:rateAt(one.st,one.d)||null};
+        if(one.ev) _set(one.ev.id,x=>({...x,...pt,comment}));
+        else _add({id:uid(),sid:one.st.id,date:one.d,planned:true,time:one.time,hours:one.hours,comment,...pt});
+      }));
+    }
+    closeModal();
+  };
+}
+
+/* Изменить отмеченное */
+function openSlotEdit(sl){
+  detailSid=null;
+  const e=sl.ev, st=sl.st, s=slotStatus(sl);
+  const child = e.child ? findEv(e.child) : null;
+  let body="";
+  if(s==="lesson") body=`<label for="eH">Длительность, часов</label>${hoursInput("eH",hoursOf(e,st))}
+      <div class="hint" id="eCost">${st.price>0?"Стоимость: "+rub(hoursOf(e,st)*rateOf(e,st)):""}</div>`;
+  else if(s==="cancel" && e.status==="charged") body=`<label for="eH">Оплачиваемых часов</label>${hoursInput("eH",hoursOf(e,st))}`;
+  else if(s==="moved") body=`<div class="hint">${!e.toDate?"Дата переноса ещё не назначена.":""}Перенесено на ${e.toDate?fmtDate(e.toDate)+(e.toTime?" "+e.toTime:""):"—"}. ${child&&child.type!=="makeup"?"Это занятие уже отмечено — отмена переноса удалит и эту отметку.":""}</div>`;
+  openModal(`<h3>${esc(st.name)} · ${fmtDate(sl.d)}</h3>
+    ${body}
+    <label for="eCom">Заметка: что прошли, что задано</label><input id="eCom" value="${esc(e.comment||"")}">
+    <div class="foot">
+      <button class="secondary" type="button" id="eUndo">${s==="moved"?"Отменить перенос":"Снять отметку"}</button>
+      <button class="secondary" type="button" id="eClose">Закрыть</button>
+      <button class="primary" type="button" id="eSave">Сохранить</button></div>`);
+  if($("eH") && $("eCost")) $("eH").oninput=()=>{ $("eCost").textContent = st.price>0?"Стоимость: "+rub(num($("eH").value)*rateOf(e,st)):""; };
+  $("eClose").onclick=closeModal;
+  $("eUndo").onclick=()=>{ undoSlot(e); closeModal(); };
+  $("eSave").onclick=()=>{
+    const patch={comment:$("eCom").value.trim()};
+    if($("eH")){ const h=num($("eH").value); if(!(h>0)) return; patch.hours=h; }
+    change(()=>_set(e.id,x=>({...x,...patch}))); closeModal();
+  };
+}
+
+function openSetDate(id){
+  const e=findEv(id); if(!e) return; const st=byId(e.sid); detailSid=null;
+  openModal(`<h3>Назначить дату переноса</h3>
+    <div class="hint" style="margin-top:-6px">${esc(st?st.name:"")} · занятие с ${fmtDate(e.date)}${e.time?" "+e.time:""}</div>
+    <div class="row3">
+      <div><label for="sdDate">Дата</label><input type="date" id="sdDate" value="${addDays(today(),1)}"></div>
+      <div><label for="sdTime">Время</label><input type="time" id="sdTime" step="300" value="${e.time||""}"></div>
+      <div><label for="sdH">Часов</label>${hoursInput("sdH",e.hours||1)}</div>
+    </div>
+    <div class="hint" id="sdErr"></div>
+    <div class="foot"><button class="secondary" type="button" id="sdClose">Закрыть</button><button class="primary" type="button" id="sdSave">Сохранить</button></div>`);
+  $("sdClose").onclick=closeModal;
+  $("sdSave").onclick=()=>{
+    const d=$("sdDate").value, tm=$("sdTime").value, h=num($("sdH").value)||e.hours||1;
+    if(!d){ $("sdErr").textContent="Укажите дату."; return; }
+    const childId=uid();
+    change(()=>{
+      _set(e.id,x=>({...x,toDate:d,toTime:tm,child:childId}));
+      _add({id:childId,sid:e.sid,date:d,slot:"makeup",type:"makeup",time:tm,hours:h,fromDate:e.date,parent:e.id,comment:""});
+    });
+    closeModal();
+  };
+}
+
+function openParentMsg(sid){
+  const st=byId(sid); detailSid=null;
+  openModal(`<h3>Сообщение: ${esc(st.name)}</h3>
+    <textarea id="pm" style="min-height:200px">${esc(parentText(st,repMonth))}</textarea>
+    <div class="hint" id="pmHint">Текст можно отредактировать перед отправкой.</div>
+    <div class="foot"><button class="secondary" type="button" id="pmClose">Закрыть</button><button class="primary" type="button" id="pmCopy">Скопировать</button></div>`);
+  $("pmClose").onclick=closeModal;
+  $("pmCopy").onclick=()=>copyText($("pm"),$("pmHint"));
+}
+async function copyText(ta,hint,onOk){
+  try{ await navigator.clipboard.writeText(ta.value); hint.textContent="Скопировано."; onOk&&onOk(); }
+  catch(e){ ta.focus(); ta.select(); let ok=false; try{ ok=document.execCommand("copy"); }catch(_){} hint.textContent= ok?"Скопировано.":"Текст выделен — скопируйте его вручную (⌘C)."; if(ok&&onOk) onOk(); }
+}
+
+function usualPayment(st){
+  let last=null;
+  allEvents().forEach(e=>{ if(e.sid===st.id && e.type==="payment" && (!last || e.date>last.date)) last=e; });
+  if(last) return Math.round(+last.amount||0);
+  const p=planOf(st,today().slice(0,7));
+  return Math.round(p.cost||0);
+}
+function openEventForm(sid,type,date){
+  detailSid=null;
+  const opts=active().map(s=>`<option value="${s.id}" ${s.id===sid?"selected":""}>${esc(s.name)}</option>`).join("");
+  const s0=sid?byId(sid):active()[0];
+  openModal(`<h3>Новая запись</h3>
+    <div class="seg" id="seg">
+      <button type="button" data-t="lesson">Доп. занятие</button>
+      <button type="button" data-t="payment">Оплата</button>
+    </div>
+    <label for="fSt">Ученик</label><select id="fSt">${opts}</select>
+    <div class="row3">
+      <div><label for="fDate">Дата</label><input type="date" id="fDate" value="${date||today()}"></div>
+      <div class="lf"><label for="fTime">Время</label><input type="time" id="fTime" step="300"></div>
+      <div class="lf"><label for="fH">Часов</label>${hoursInput("fH",(s0&&s0.hours)||1)}</div>
+    </div>
+    <div id="amtWrap" hidden><label for="fAmt">Сумма, ₽</label><input type="number" inputmode="numeric" min="0" id="fAmt">
+      <div class="chips" id="fChips"></div></div>
+    <div class="hint" id="fHint"></div>
+    <label for="fCom">Комментарий</label><input id="fCom" placeholder="Необязательно">
+    <div class="foot"><button class="secondary" type="button" id="fCancel">Закрыть</button><button class="primary" type="button" id="fSave">Сохранить</button></div>`);
+  let cur=type==="payment"?"payment":"lesson";
+  const updHint=()=>{
+    const s=byId($("fSt").value), d=$("fDate").value;
+    if(!s){ $("fHint").textContent=""; return; }
+    if(cur==="lesson"){
+      $("fHint").textContent = s.price>0 ? "Стоимость: "+rub(num($("fH").value)*s.price)+". Для занятий по расписанию используйте «Сегодня» или «Календарь»." : "Цена за час не указана.";
+    } else if(s.mode==="month" && s.price>0){ const k=(d||today()).slice(0,7); const p=planOf(s,k); $("fHint").textContent=`По расписанию в ${MONTHS_GEN[+k.slice(5)-1]}: ${lessonsWord(p.count)}, ${fmtH(p.hours)} = ${rub(p.hours*s.price)}.`; }
+    else $("fHint").textContent="";
+  };
+  const setType=t=>{ cur=t; $("seg").querySelectorAll("button").forEach(b=>b.setAttribute("aria-pressed",b.dataset.t===t));
+    $("amtWrap").hidden=t!=="payment"; $("modal").querySelectorAll(".lf").forEach(x=>x.style.visibility=t==="lesson"?"visible":"hidden"); if(t==="payment") chips(); updHint(); };
+  $("seg").onclick=e=>{ const b=e.target.closest("button"); if(b) setType(b.dataset.t); };
+  const chips=()=>{
+    const s=byId($("fSt").value); if(!s||!$("fChips")) return;
+    const u=usualPayment(s), m=Math.round(planOf(s,today().slice(0,7)).cost), four=Math.round((s.hours||1)*rateAt(s,today())*4);
+    const list=[["как обычно",u],["месяц",m],["4 занятия",four]].filter(x=>x[1]>0);
+    $("fChips").innerHTML=list.map(x=>`<button class="chip" type="button" data-amt="${x[1]}">${x[0]}: ${rub(x[1])}</button>`).join("");
+    $("fChips").querySelectorAll("[data-amt]").forEach(b=>b.onclick=e=>{ e.stopPropagation(); $("fAmt").value=b.dataset.amt; });
+    if(!$("fAmt").value && u>0) $("fAmt").value=u;
+  };
+  $("fSt").onchange=()=>{ const s=byId($("fSt").value); if(s) $("fH").value=s.hours||1; chips(); updHint(); };
+  $("fDate").onchange=updHint; $("fH").oninput=updHint;
+  setType(cur);
+  $("fCancel").onclick=closeModal;
+  $("fSave").onclick=()=>{
+    const s=byId($("fSt").value), d=$("fDate").value;
+    if(!s||!d){ $("fHint").textContent="Выберите ученика и дату."; return; }
+    const ev={id:uid(),sid:s.id,type:cur,date:d,comment:$("fCom").value.trim()};
+    if(cur==="payment"){
+      const a=num($("fAmt").value);
+      if(!(a>0)){ $("fHint").textContent="Введите сумму оплаты."; $("fAmt").focus(); return; }
+      ev.amount=a;
+    } else {
+      const h=num($("fH").value); if(!(h>0)){ $("fHint").textContent="Укажите длительность."; return; }
+      ev.hours=h; ev.time=$("fTime").value; ev.price=s.price>0?s.price:null;
+    }
+    change(()=>_add(ev)); closeModal();
+  };
+}
+
+function openDetail(sid){ detailSid=sid; detailMonth=today().slice(0,7); pendingDelete=null; openModal('<div id="det"></div>'); renderDetail(); }
+
+function renderDetail(){
+  const st=byId(detailSid); if(!st||!$("det")) return;
+  const b=balanceOf(st), m=monthStats(st,detailMonth);
+  const evs=(months[detailMonth]||[]).filter(e=>e.sid===st.id).sort((a,c)=>a.date<c.date?1:-1);
+  const balTxt = b.balance<0 ? `<span class="neg">долг ${rub(-b.balance)}</span>` : b.balance>0 ? `<span class="pos">аванс ${rub(b.balance)}</span>` : "в расчёте";
+  const hist = evs.length ? evs.map(e=>{
+    let t="",amt="";
+    if(e.type==="lesson"){ t=(e.slot==="makeup"?"Занятие (перенос)":e.planned?"Занятие":"Доп. занятие")+" · "+fmtH(hoursOf(e,st)); amt="−"+rub(costOf(e,st)); }
+    else if(e.type==="payment"){ t="Оплата"; amt="+"+rub(e.amount); }
+    else if(e.type==="skip"){ t="Каникулы / выходной"; }
+    else if(e.type==="moved"){ t = e.toDate ? "Перенос на "+fmtDate(e.toDate)+(e.toTime?" "+e.toTime:"") : "Перенос — дата не назначена"; }
+    else if(e.type==="makeup"){ t="Перенесённое занятие · ожидается"; }
+    else { t = e.status==="charged" ? "Отмена с оплатой · "+fmtH(hoursOf(e,st)) : e.status==="free" ? "Отмена без оплаты" : "Отмена (без решения)"; amt = e.status==="charged" ? "−"+rub(costOf(e,st)) : ""; }
+    const sure=pendingDelete===e.id;
+    return `<div class="ev"><div class="d">${fmtDate(e.date)}</div><div class="t">${t} ${amt?`<b>${amt}</b>`:""}${e.comment?`<small>${esc(e.comment)}</small>`:""}</div>
+      <button class="del ${sure?"sure":""}" type="button" data-del="${e.id}">${sure?"Точно удалить":"Удалить"}</button></div>`;
+  }).join("") : '<div class="empty">В этом месяце записей нет.</div>';
+  $("det").innerHTML=`<h3>${esc(st.name)}</h3>
+    <div>Итог: <b>${balTxt}</b></div>
+    <div class="hint">Всего оплачено ${rub(b.paid)}, проведено ${fmtH(b.hours)} на ${rub(b.cost)}.${st.note?"<br>"+esc(st.note):""}</div>
+    <div class="monthbar" style="margin-top:12px"><button class="sm" type="button" id="mPrev" aria-label="Предыдущий месяц">‹</button><strong>${monthLabel(detailMonth)}</strong><button class="sm" type="button" id="mNext" aria-label="Следующий месяц">›</button></div>
+    <div class="stats">
+      <div><b>${fmtH(m.heldH)} из ${fmtH(m.planH)}</b><span>проведено / по расписанию</span></div>
+      <div><b>${m.moved} / ${m.cancFree+m.cancPaid}</b><span>переносов / отмен</span></div>
+      <div><b>${rub(m.cost)}</b><span>стоимость занятий</span></div>
+      <div><b>${rub(m.paid)}</b><span>получено оплат</span></div>
+    </div>
+    <div>${hist}</div>
+    <div class="foot"><button class="secondary" type="button" id="dEdit">Настройки</button><button class="primary" type="button" id="dClose">Готово</button></div>`;
+  $("mPrev").onclick=()=>{detailMonth=shiftMonth(detailMonth,-1);pendingDelete=null;renderDetail();};
+  $("mNext").onclick=()=>{detailMonth=shiftMonth(detailMonth,1);pendingDelete=null;renderDetail();};
+  $("dClose").onclick=closeModal;
+  $("dEdit").onclick=()=>openStudentForm(st.id);
+  $("det").querySelectorAll("[data-del]").forEach(btn=>btn.onclick=ev=>{
+    ev.stopPropagation(); const id=btn.dataset.del;
+    if(pendingDelete===id){ pendingDelete=null; change(()=>{ const e=findEv(id); if(e&&e.child){ const c=findEv(e.child); if(c) _resetOrDelete(c); } _del(id); }); }
+    else { pendingDelete=id; renderDetail(); }
+  });
+}
+
+function openStudentForm(sid){
+  const st = sid ? byId(sid) : {id:null,name:"",perWeek:1,price:0,hours:1,note:"",mode:"",sched:[],archived:false};
+  detailSid=null;
+  const curP=periodFor(st,today());
+  const curDays=curP?curP.days:[];
+  let picked=curDays.slice();
+  const defFrom = hasSched(st) ? today() : today().slice(0,7)+"-01";
+  openModal(`<h3>${sid?"Настройки: "+esc(st.name):"Новый ученик"}</h3>
+    <label for="sName">Имя</label><input id="sName" value="${esc(st.name)}">
+    <label>Дни занятий</label>
+    <div class="wdpick" id="wdp">${WD_ORDER.map(w=>`<button type="button" data-w="${w}" aria-pressed="${picked.includes(w)}">${WD[w]}</button>`).join("")}</div>
+    <div class="hint">Время и разную длительность по дням удобнее задать через «Импорт расписания».</div>
+    <div class="row3">
+      <div><label for="sPrice">Цена за час, ₽</label><input id="sPrice" type="number" min="0" inputmode="numeric" value="${st.price||""}"></div>
+      <div><label for="sPriceFrom">Цена действует с</label><input id="sPriceFrom" type="date" value="${today()}"></div>
+      <div><label for="sH">Обычно часов</label>${hoursInput("sH",st.hours||1)}</div>
+      <div><label for="sFrom">Дни действуют с</label><input id="sFrom" type="date" value="${defFrom}"></div>
+    </div>
+    <label for="sPair">Занимается в паре с</label>
+    <select id="sPair"><option value="">— нет —</option>${active().filter(x=>x.id!==st.id).map(x=>`<option value="${x.id}" ${st.pair===x.id?"selected":""}>${esc(x.name)}</option>`).join("")}</select>
+    <label for="sMode">Как платит</label>
+    <select id="sMode"><option value="">— выберите —</option>${Object.entries(MODES).map(([k,v])=>`<option value="${k}" ${st.mode===k?"selected":""}>${v}</option>`).join("")}</select>
+    <label for="sNote">Заметка</label><input id="sNote" value="${esc(st.note)}" placeholder="например: переводом маме до 5 числа">
+    <div class="hint">Новая цена применяется к будущим занятиям. Изменение дней не меняет прошлые месяцы.</div>
+    <div class="hint" id="sErr"></div>
+    <div class="foot">
+      ${sid?`<button class="secondary" type="button" id="sArch">Убрать из списка</button>`:""}
+      <button class="secondary" type="button" id="sBack">Отмена</button>
+      <button class="primary" type="button" id="sSave">Сохранить</button></div>`);
+  $("wdp").onclick=e=>{ const b=e.target.closest("button"); if(!b) return; const w=+b.dataset.w;
+    picked = picked.includes(w) ? picked.filter(x=>x!==w) : picked.concat([w]); b.setAttribute("aria-pressed",picked.includes(w)); };
+  $("sBack").onclick=()=> sid ? openDetail(sid) : closeModal();
+  $("sSave").onclick=()=>{
+    const name=$("sName").value.trim();
+    if(!name){ $("sErr").textContent="Введите имя."; return; }
+    const from=$("sFrom").value||today();
+    let sched=(st.sched||[]).slice();
+    const same = picked.length===curDays.length && picked.every(x=>curDays.includes(x));
+    if(!same){
+      const times={}, durs={};
+      picked.forEach(w=>{ if(curP&&curP.times&&curP.times[w]) times[w]=curP.times[w]; if(curP&&curP.durs&&curP.durs[w]) durs[w]=curP.durs[w]; });
+      sched=sched.filter(p=>p.from<from); sched.push({from,days:picked.slice().sort(),times,durs});
+    }
+    const newPrice=Math.max(0,num($("sPrice").value));
+    let prices=(st.prices||[]).slice();
+    if(newPrice!==(st.price||0)){ const pf=$("sPriceFrom").value||today(); prices=prices.filter(x=>x.from!==pf).concat([{from:pf,price:newPrice}]).sort((a,b)=>a.from<b.from?-1:1); }
+    const pair=$("sPair").value;
+    const upd={...st,name,sched,prices,pair,perWeek:picked.length||st.perWeek,price:newPrice,hours:num($("sH").value)||1,mode:$("sMode").value,note:$("sNote").value.trim()};
+    if(sid) students=students.map(s=>s.id===sid?upd:s); else { upd.id="s"+uid(); students=students.concat([upd]); }
+    if(pair){ students=students.map(s=>s.id===pair?{...s,pair:upd.id}:s); students=students.map(s=>(s.pair===upd.id&&s.id!==pair)?{...s,pair:""}:s); }
+    else if(sid) students=students.map(s=>s.pair===sid?{...s,pair:""}:s);
+    saveStudents(); render(); sid?openDetail(sid):closeModal();
+  };
+  if(sid) $("sArch").onclick=()=>{ students=students.map(s=>s.id===sid?{...s,archived:true}:s); saveStudents(); render(); closeModal(); };
+}
+
+/* ---------- backup ---------- */
+$("backupBtn").onclick=()=>openBackup();
+function openBackup(){
+  detailSid=null;
+  const data=JSON.stringify({app:"tutor-ledger",version:2,exported:new Date().toISOString(),students,months});
+  const local = mode==="local";
+  openModal(`<h3>Резервная копия</h3>
+    <div class="hint" style="margin-top:0">${local?"Скачайте файл и храните его, например, в облаке. Из него можно восстановить все записи.":"Скопируйте текст ниже и вставьте его в приложение-файл: «Резервная копия» → «Восстановить из копии»."}</div>
+    <div class="foot" style="margin-top:10px">
+      ${local?`<button class="primary" type="button" id="bkDl">Скачать файл</button>`:""}
+      <button class="${local?"secondary":"primary"}" type="button" id="bkCopy">Скопировать данные</button>
+    </div>
+    <div class="foot" style="margin-top:8px"><button class="secondary" type="button" id="bkCsv">Таблица для Excel (CSV)</button></div>
+    <textarea id="bkOut" style="min-height:70px;margin-top:10px" readonly>${esc(data)}</textarea>
+    <div class="hint" id="bkHint"></div>
+    <h3 style="margin-top:18px;font-size:16px">Восстановить из копии</h3>
+    <div class="hint" style="margin-top:0">Выберите файл копии или вставьте скопированный текст. Текущие данные будут заменены.</div>
+    <input type="file" id="bkFile" accept=".json,application/json,text/plain" style="margin-top:8px">
+    <textarea id="bkIn" style="min-height:70px;margin-top:8px" placeholder="или вставьте текст копии сюда"></textarea>
+    <div class="hint" id="bkPrev"></div>
+    <div class="foot"><button class="secondary" type="button" id="bkClose">Закрыть</button><button class="secondary" type="button" id="bkRestore" disabled>Заменить данные</button></div>`);
+  $("bkClose").onclick=closeModal;
+  const markBackup=()=>{ try{ localStorage.setItem("tutor-last-backup",String(Date.now())); }catch(e){} };
+  if(local) $("bkDl").onclick=()=>{
+    const blob=new Blob([data],{type:"application/json"});
+    const a=document.createElement("a"); a.href=URL.createObjectURL(blob);
+    a.download="uchet-zanyatiy-kopiya-"+today()+".json"; document.body.appendChild(a); a.click();
+    setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},1000);
+    markBackup(); $("bkHint").textContent="Файл сохранён в «Загрузки».";
+  };
+  $("bkCopy").onclick=()=>copyText($("bkOut"),$("bkHint"),markBackup);
+  $("bkCsv").onclick=()=>{
+    const csv=buildCSV();
+    $("bkOut").value=csv; $("bkHint").textContent="Ниже таблица CSV: скачайте файл или скопируйте и вставьте в Excel.";
+    try{
+      const blob=new Blob(["\ufeff"+csv],{type:"text/csv;charset=utf-8"});
+      const a=document.createElement("a"); a.href=URL.createObjectURL(blob);
+      a.download="zanyatiya-"+today()+".csv"; document.body.appendChild(a); a.click();
+      setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},1000);
+    }catch(e){}
+  };
+  let incoming=null;
+  const check=text=>{
+    incoming=null; $("bkRestore").disabled=true;
+    try{
+      const o=JSON.parse(text);
+      if(!o || !Array.isArray(o.students) || typeof o.months!=="object") throw 0;
+      incoming=o;
+      $("bkPrev").innerHTML=`Найдено: учеников ${o.students.filter(x=>!x.archived).length}, записей ${Object.values(o.months).flat().length}${o.exported?", копия от "+esc(o.exported.slice(0,10)):""}.`;
+      $("bkRestore").disabled=false;
+    }catch(e){ $("bkPrev").innerHTML=text.trim()?'<span class="warn">Это не похоже на резервную копию приложения.</span>':""; }
+  };
+  $("bkIn").oninput=()=>check($("bkIn").value);
+  $("bkFile").onchange=()=>{ const f=$("bkFile").files[0]; if(!f) return; const r=new FileReader(); r.onload=()=>{ $("bkIn").value=r.result; check(r.result); }; r.readAsText(f); };
+  $("bkRestore").onclick=()=>{
+    if(!incoming) return;
+    const oldKeys=Object.keys(months);
+    students=incoming.students.map(x=>({...x})); normStudents();
+    months={}; for(const k in incoming.months) months[k]=(incoming.months[k]||[]).map(x=>({...x}));
+    if(mode==="db"){ saveStudents(); new Set(oldKeys.concat(Object.keys(months))).forEach(k=>{ if(!months[k]) months[k]=[]; saveMonth(k); }); }
+    else saveLocal();
+    closeModal(); render();
+  };
+}
+
+function buildCSV(){
+  const q=v=>'"'+String(v??"").replace(/"/g,'""')+'"';
+  const TYPES={lesson:"занятие",payment:"оплата",skip:"каникулы",moved:"перенос",makeup:"перенесённое занятие",cancel:"отмена"};
+  const rows=[["Дата","Ученик","Тип","Часы","Ставка, ₽","Сумма, ₽","Заметка"]];
+  allEvents().slice().sort((a,b)=>a.date<b.date?-1:1).forEach(e=>{
+    const st=students.find(x=>x.id===e.sid)||{name:"?"};
+    let type=TYPES[e.type]||e.type, sum="";
+    if(e.type==="payment") sum=Math.round(+e.amount||0);
+    else { const c=costOf(e,st); if(c) sum=Math.round(c); }
+    if(e.type==="cancel") type += e.status==="charged" ? " с оплатой" : e.status==="free" ? " без оплаты" : " без решения";
+    if(e.type==="moved") type += e.toDate ? " на "+e.toDate : " (дата не назначена)";
+    rows.push([e.date,st.name,type,e.type==="payment"?"":(e.hours||1),e.type==="payment"?"":(e.price||st.price||""),sum,e.comment||""]);
+  });
+  return rows.map(r=>r.map(q).join(";")).join("\r\n");
+}
+
+/* ---------- import ---------- */
+const WD_MAP={"пн":1,"вт":2,"ср":3,"чт":4,"пт":5,"сб":6,"вс":0};
+const toMin = t => { const [h,m]=t.replace(".",":").split(":").map(Number); return h*60+m; };
+function parseImport(text){
+  let from=today().slice(0,7)+"-01"; const items=[]; const errors=[];
+  text.split(/\n/).map(l=>l.trim()).filter(Boolean).forEach(line=>{
+    let m=line.match(/^с\s+(\d{1,2})\.(\d{1,2})\.(\d{4})$/i);
+    if(m){ from=m[3]+"-"+pad(m[2])+"-"+pad(m[1]); return; }
+    m=line.match(/^с\s+(\d{4}-\d{2}-\d{2})$/i);
+    if(m){ from=m[1]; return; }
+    const i=line.indexOf(":");
+    if(i<1){ errors.push(line); return; }
+    const name=line.slice(0,i).trim(), rest=line.slice(i+1).trim();
+    if(/^нет$/i.test(rest)){ items.push({name,remove:true}); return; }
+    const days=[], times={}, durs={}; let ok=true;
+    rest.split(/[,;]/).map(x=>x.trim()).filter(Boolean).forEach(part=>{
+      const mm=part.match(/^(пн|вт|ср|чт|пт|сб|вс)\s*(\d{1,2}[:.]\d{2})?(?:\s*[-–—]\s*(\d{1,2}[:.]\d{2}))?(?:\s*\(?\s*(\d+(?:[.,]\d+)?)\s*ч\.?\s*\)?)?$/i);
+      if(!mm){ ok=false; return; }
+      const w=WD_MAP[mm[1].toLowerCase()];
+      if(!days.includes(w)) days.push(w);
+      if(mm[2]) times[w]=mm[2].replace(".",":").padStart(5,"0");
+      if(mm[2]&&mm[3]){ const d=(toMin(mm[3])-toMin(mm[2]))/60; if(d>0) durs[w]=d; }
+      if(mm[4]) durs[w]=num(mm[4]);
+    });
+    if(!ok||!days.length){ errors.push(line); return; }
+    items.push({name,days:days.sort(),times,durs});
+  });
+  return {from,items,errors};
+}
+function findStudent(name){ const n=name.toLowerCase().replace(/\s+/g," "); return students.find(s=>s.name.toLowerCase().replace(/\s+/g," ")===n); }
+function openImport(){
+  detailSid=null;
+  openModal(`<h3>Импорт расписания</h3>
+    <div class="hint" style="margin-top:0">Одна строка — один ученик: <b>Имя: Вт 16:00-18:00, Чт 17:00</b> (или <b>Вт 16:00 2ч</b>). Без длительности берётся «обычно часов». Строка <b>с 01.09.2026</b> — дата начала. <b>Имя: нет</b> убирает ученика.</div>
+    <textarea id="impText" style="min-height:200px" placeholder="с 01.09.2026&#10;Арина: Вт 16:00-17:00"></textarea>
+    <div id="impPrev" class="hint"></div>
+    <div class="foot"><button class="secondary" type="button" id="impClose">Закрыть</button><button class="secondary" type="button" id="impCheck">Проверить</button><button class="primary" type="button" id="impApply" disabled>Применить</button></div>`);
+  let parsed=null;
+  const check=()=>{
+    parsed=parseImport($("impText").value);
+    const rows=parsed.items.map(it=>{
+      const st=findStudent(it.name);
+      if(it.remove) return `<div>${esc(it.name)}: ${st?"убрать из списка":"<span class='warn'>не найден</span>"}</div>`;
+      const d=WD_ORDER.filter(w=>it.days.includes(w)).map(w=>WD[w]+(it.times[w]?" "+it.times[w]:"")+(it.durs[w]?" ("+fmtH(it.durs[w])+")":"")).join(", ");
+      return `<div><b>${esc(it.name)}</b>${st?"":" <span class='warn'>(новый ученик)</span>"}: ${d}</div>`;
+    }).join("");
+    $("impPrev").innerHTML = parsed.items.length ? `<div style="color:var(--ink);margin:8px 0 4px">Будет применено с ${fmtDate(parsed.from)}.${parsed.from.slice(0,4)}:</div>${rows}` : "Нет строк для импорта.";
+    if(parsed.errors.length) $("impPrev").innerHTML+=`<div class="warn" style="margin-top:6px">Не распознано: ${parsed.errors.map(esc).join(" | ")}</div>`;
+    $("impApply").disabled=!parsed.items.length;
+  };
+  $("impCheck").onclick=check;
+  $("impText").oninput=()=>{ $("impApply").disabled=true; };
+  $("impClose").onclick=closeModal;
+  $("impApply").onclick=()=>{
+    if(!parsed) return;
+    parsed.items.forEach(it=>{
+      let st=findStudent(it.name);
+      if(it.remove){ if(st) students=students.map(s=>s.id===st.id?{...s,archived:true}:s); return; }
+      if(!st){ st={id:"s"+uid(),name:it.name,perWeek:it.days.length,price:0,hours:1,note:"",mode:"",sched:[],archived:false}; students=students.concat([st]); }
+      const sched=(st.sched||[]).filter(p=>p.from<parsed.from).concat([{from:parsed.from,days:it.days,times:it.times,durs:it.durs}]);
+      students=students.map(s=>s.id===st.id?{...s,sched,perWeek:it.days.length,archived:false}:s);
+    });
+    saveStudents(); tab="st"; closeModal(); render();
+  };
+}
+
+init();
+})();
+</script>
+</body>
+</html>
