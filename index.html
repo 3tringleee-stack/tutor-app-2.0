@@ -524,7 +524,7 @@ const timeFor = (st,d) => { const p=periodFor(st,d); return p&&p.times ? (p.time
 const durFor = (st,d) => { const p=periodFor(st,d); const w=parse(d).getDay(); return (p&&p.durs&&p.durs[w]) || st.hours || 1; };
 const hasSched = st => (st.sched||[]).some(p=>p.days&&p.days.length);
 const plannedOn = (st,d) => daysFor(st,d).includes(parse(d).getDay());
-const PLAN_TYPES=["lesson","cancel","skip","moved"];
+const PLAN_TYPES=["lesson","cancel","skip","moved","tweak"];
 const planEvent = (st,d) => eventsOn(d).find(e=>e.sid===st.id && e.planned && e.slot!=="makeup" && PLAN_TYPES.includes(e.type));
 const endTime = (t,h) => { if(!t) return ""; const [H,M]=t.split(":").map(Number); const m=H*60+M+Math.round(h*60); return pad(Math.floor(m/60)%24)+":"+pad(m%60); };
 
@@ -533,7 +533,7 @@ function slotsOn(d){
   active().forEach(st=>{
     if(plannedOn(st,d)){
       const ev=planEvent(st,d);
-      out.push({st,d,kind:"plan",ev,time:timeFor(st,d),hours:(ev&&ev.hours)||durFor(st,d)});
+      out.push({st,d,kind:"plan",ev,time:(ev&&ev.time)||timeFor(st,d),hours:(ev&&ev.hours)||durFor(st,d)});
     }
   });
   eventsOn(d).forEach(e=>{
@@ -559,9 +559,10 @@ function groupSlots(list){
 }
 function slotStatus(sl){
   if(!sl.ev) return "open";
-  if(sl.ev.type==="makeup") return "open";
+  if(sl.ev.type==="makeup"||sl.ev.type==="tweak") return "open";
   return sl.ev.type;
 }
+const isDraft = ev => !!ev && (ev.type==="makeup"||ev.type==="tweak");
 function rateOf(ev,st){ return ev.price>0 ? ev.price : (st?st.price:0); }
 function hoursOf(ev,st){ return ev.hours>0 ? ev.hours : 1; }
 function costOf(ev, st){
@@ -609,7 +610,7 @@ function markDone(g){
   const list=Array.isArray(g)?g:[g];
   change(()=>{ list.forEach(sl=>{
     const st=sl.st;
-    if(sl.kind==="makeup") _set(sl.ev.id, e=>({...e,type:"lesson",hours:sl.hours,price:rateAt(st,sl.d)||null}));
+    if(isDraft(sl.ev)) _set(sl.ev.id, e=>({...e,type:"lesson",hours:sl.hours,time:sl.time,price:rateAt(st,sl.d)||null}));
     else _add({id:uid(),sid:st.id,date:sl.d,type:"lesson",planned:true,time:sl.time,hours:sl.hours,price:rateAt(st,sl.d)||null,comment:""});
   }); });
 }
@@ -617,7 +618,7 @@ function markDay(d){
   change(()=>{
     slotsOn(d).filter(sl=>slotStatus(sl)==="open").forEach(sl=>{
       const st=sl.st;
-      if(sl.kind==="makeup") _set(sl.ev.id, e=>({...e,type:"lesson",hours:sl.hours,price:rateAt(st,d)||null}));
+      if(isDraft(sl.ev)) _set(sl.ev.id, e=>({...e,type:"lesson",hours:sl.hours,time:sl.time,price:rateAt(st,d)||null}));
       else _add({id:uid(),sid:st.id,date:d,type:"lesson",planned:true,time:sl.time,hours:sl.hours,price:rateAt(st,d)||null,comment:""});
     });
   });
@@ -627,6 +628,7 @@ function undoSlot(ev){
   change(()=>{
     const e=findEv(ev.id); if(!e) return;
     if(e.child){ const c=findEv(e.child); if(c) _resetOrDelete(c); }
+    if(e.type==="tweak"){ _del(e.id); return; }
     if(e.slot==="makeup"){
       _set(e.id, x=>{ const n={id:x.id,sid:x.sid,date:x.date,slot:"makeup",type:"makeup",time:x.time,hours:x.hours,fromDate:x.fromDate,parent:x.parent,comment:x.comment||""}; return n; });
     } else _del(e.id);
@@ -738,6 +740,7 @@ function slotRow(g){
   const who=`<div class="who"><b>${esc(names)}</b><small>${sub}${group.length>1?" · пара":""}</small></div>`;
   if(s==="open") return `<div class="prow">${who}<div class="btns">
     <button class="sm done" type="button" data-done="${key}">Проведено</button>
+    <button class="sm" type="button" data-tweak="${key}" title="Изменить время и длительность">✎</button>
     <button class="sm" type="button" data-move="${key}" title="Перенести в календаре">⇄</button>
     <button class="sm" type="button" data-miss="${key}">Не состоялось</button></div></div>`;
   let label="";
@@ -1072,6 +1075,7 @@ document.addEventListener("click",e=>{
   else if(a.edit && slotRegistry[a.edit]) openSlotEdit(slotRegistry[a.edit][0]);
   else if(a.undo && slotRegistry[a.undo]) slotRegistry[a.undo].forEach(x=>undoSlot(x.ev));
   else if(a.move && slotRegistry[a.move]) startMove(slotRegistry[a.move]);
+  else if(a.tweak && slotRegistry[a.tweak]) openTweak(slotRegistry[a.tweak]);
   else if(a.movecancel){ moveGroup=null; render(); }
   else if(a.setdate) openSetDate(a.setdate);
   else if(a.undomoved) undoSlot(findEv(a.undomoved));
@@ -1160,6 +1164,54 @@ function openMiss(g){
       }));
     }
     closeModal();
+  };
+}
+
+/* Изменить запланированное занятие (до отметки) */
+function openTweak(g){
+  const group=Array.isArray(g)?g:[g], sl=group[0], st=sl.st;
+  detailSid=null;
+  const baseH=durFor(st,sl.d), baseT=timeFor(st,sl.d);
+  const wd=WD_LONG[parse(sl.d).getDay()];
+  openModal(`<h3>Изменить занятие</h3>
+    <div class="hint" style="margin-top:-6px">${esc(group.map(x=>x.st.name).join(" и "))} · ${fmtDate(sl.d)}, ${wd}${sl.kind==="makeup"?" · перенос":""}</div>
+    <div class="row2">
+      <div><label for="twTime">Время</label><input type="time" id="twTime" step="300" value="${sl.time||""}"></div>
+      <div><label for="twH">Часов</label>${hoursInput("twH",sl.hours)}</div>
+    </div>
+    <div class="chips" id="twChips">${[1,1.5,2,3].map(h=>`<button class="chip" type="button" data-h="${h}">${fmtH(h)}</button>`).join("")}</div>
+    <div class="hint" id="twHint"></div>
+    ${sl.kind==="plan"?`<label style="margin-top:12px"><input type="checkbox" id="twAll" style="width:auto;margin-right:6px">Менять и дальше: все ${wd} с этой даты</label>`:""}
+    <div class="foot">
+      ${sl.ev&&sl.ev.type==="tweak"?`<button class="secondary" type="button" id="twReset">Вернуть как в расписании</button>`:""}
+      <button class="secondary" type="button" id="twClose">Закрыть</button>
+      <button class="primary" type="button" id="twSave">Сохранить</button></div>`);
+  const hint=()=>{ const h=num($("twH").value)||sl.hours;
+    $("twHint").textContent = (st.price>0?"Стоимость занятия: "+rub(h*rateAt(st,sl.d))+". ":"")+"По расписанию "+fmtH(baseH)+(baseT?" в "+baseT:"")+"."; };
+  $("twChips").onclick=e=>{ const b=e.target.closest("[data-h]"); if(!b) return; $("twH").value=b.dataset.h; hint(); };
+  $("twH").oninput=hint; hint();
+  $("twClose").onclick=closeModal;
+  if($("twReset")) $("twReset").onclick=()=>{ change(()=>group.forEach(one=>{ if(one.ev&&one.ev.type==="tweak") _del(one.ev.id); })); closeModal(); };
+  $("twSave").onclick=()=>{
+    const tm=$("twTime").value, h=num($("twH").value)||sl.hours;
+    if(!(h>0)) return;
+    const forAll = $("twAll") && $("twAll").checked;
+    change(()=>group.forEach(one=>{
+      if(one.ev) _set(one.ev.id,x=>({...x,time:tm,hours:h}));
+      else _add({id:uid(),sid:one.st.id,date:one.d,type:"tweak",planned:true,time:tm,hours:h,comment:""});
+    }));
+    if(forAll){
+      const w=parse(sl.d).getDay();
+      group.forEach(one=>{
+        const cur=periodFor(one.st,sl.d); if(!cur) return;
+        const times={...(cur.times||{})}, durs={...(cur.durs||{})};
+        if(tm) times[w]=tm; durs[w]=h;
+        const sched=(one.st.sched||[]).filter(x=>x.from<sl.d).concat([{from:sl.d,days:cur.days.slice(),times,durs}]);
+        students=students.map(x=>x.id===one.st.id?{...x,sched}:x);
+      });
+      saveStudents();
+    }
+    render(); closeModal();
   };
 }
 
@@ -1309,6 +1361,7 @@ function renderDetail(){
     else if(e.type==="skip"){ t="Каникулы / выходной"; }
     else if(e.type==="moved"){ t = e.toDate ? "Перенос на "+fmtDate(e.toDate)+(e.toTime?" "+e.toTime:"") : "Перенос — дата не назначена"; }
     else if(e.type==="makeup"){ t="Перенесённое занятие · ожидается"; }
+    else if(e.type==="tweak"){ t="Изменено в расписании"+(e.time?" · "+e.time:"")+" · "+fmtH(e.hours||1)+" · ожидается"; }
     else { t = e.status==="charged" ? "Отмена с оплатой · "+fmtH(hoursOf(e,st)) : e.status==="free" ? "Отмена без оплаты" : "Отмена (без решения)"; amt = e.status==="charged" ? "−"+rub(costOf(e,st)) : ""; }
     const sure=pendingDelete===e.id;
     return `<div class="ev"><div class="d">${fmtDate(e.date)}</div><div class="t">${t} ${amt?`<b>${amt}</b>`:""}${e.comment?`<small>${esc(e.comment)}</small>`:""}</div>
