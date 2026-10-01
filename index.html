@@ -234,6 +234,43 @@ textarea{min-height:60px;resize:vertical}
   @keyframes fadeIn{from{opacity:0}to{opacity:1}}
   .st-status{transition:color .2s ease}
 }
+.btxt{display:none}
+@media (min-width:900px){.btxt{display:inline}}
+.notice.info{background:var(--blue-soft);color:var(--ink)}
+.notice .btns{margin-top:8px}
+.allrep{border-top:1px solid var(--line);padding:12px 0}
+.allrep:first-of-type{border-top:0}
+.allrep b{display:block;margin-bottom:4px}
+.allrep textarea{min-height:120px}
+@media (prefers-reduced-motion:no-preference){
+  .st-status.done{animation:pop .25s cubic-bezier(.2,1.4,.5,1) both}
+  @keyframes pop{from{transform:scale(.88);opacity:.4}to{transform:none;opacity:1}}
+  .summary b{transition:color .25s ease}
+  .notice{animation:rowIn .24s ease-out both}
+}
+.kpi{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin:8px 0}
+@media (min-width:640px){.kpi{grid-template-columns:repeat(4,1fr)}}
+.kpi div{border:1px solid var(--line);border-radius:11px;padding:9px 11px}
+.kpi b{display:block;font-size:18px}
+.kpi span{font-size:11.5px;color:var(--muted)}
+.bars{display:flex;align-items:flex-end;gap:5px;height:110px;margin:10px 0 4px}
+.bars .b{flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:100%;gap:4px}
+.bars .bar{background:var(--blue);border-radius:5px 5px 0 0;min-height:2px;transition:height .45s cubic-bezier(.22,.7,.3,1)}
+.bars .bl{font-size:10.5px;color:var(--muted);text-align:center}
+.rank{display:flex;justify-content:space-between;gap:8px;padding:7px 0;border-top:1px solid var(--line);font-size:14px}
+.rank:first-of-type{border-top:0}
+.rank .rl{flex:1}
+.rank .rb{height:6px;border-radius:99px;background:var(--grid);margin-top:4px;overflow:hidden}
+.rank .rb i{display:block;height:100%;background:var(--blue);border-radius:99px}
+.insight{background:var(--blue-soft);border-radius:11px;padding:9px 11px;font-size:13.5px;margin-top:8px}
+.tpl{border-top:1px solid var(--line);padding:10px 0}
+.tpl:first-of-type{border-top:0}
+.freeday{border-top:1px solid var(--line);padding:9px 0}
+.freeday:first-of-type{border-top:0}
+.freeday b{font-size:14px}
+.freeday .chips{margin-top:5px}
+.chip.free{background:var(--green-soft);border-color:transparent;color:var(--green);font-weight:600}
+.chip.free[aria-pressed="true"]{background:var(--green);color:#fff}
 </style>
 </head>
 <body>
@@ -266,6 +303,7 @@ textarea{min-height:60px;resize:vertical}
     <div class="pend"><b id="sumPend">0</b><span>не отмечено</span></div>
   </div>
 
+  <div class="sheet notice info" id="repNotice" hidden></div>
   <div class="sheet notice" id="setupNotice" hidden></div>
   <main id="view"></main>
 </div>
@@ -328,7 +366,7 @@ const BGS={
   mint:["Мята","radial-gradient(900px 500px at 20% 0%, #D9F2E6 0%, transparent 60%), linear-gradient(170deg,#EFFAF4,#DCEFE6)"],
   grid:["Клетка","" ]
 };
-let ui={theme:"",accent:"blue",bg:"grid",bgUrl:"",dense:false,title:"Учёт занятий и оплат",owner:""};
+let ui={theme:"",accent:"blue",bg:"grid",bgUrl:"",dense:false,title:"Учёт занятий и оплат",owner:"",reportDay:25,workFrom:"17:00",workTo:"21:00",slotLen:1,slotDays:14};
 try{ const u=JSON.parse(localStorage.getItem("tutor-ui")||"null"); if(u) ui={...ui,...u}; }catch(e){}
 function saveUI(){ try{ localStorage.setItem("tutor-ui",JSON.stringify(ui)); }catch(e){} applyUI(); }
 function applyUI(){
@@ -692,12 +730,28 @@ function finishMove(d){
   };
 }
 
+const tweenState={};
+function tween(el,to,fmt){
+  if(!el) return;
+  const key=el.id, from=tweenState[key];
+  tweenState[key]=to;
+  const reduce = typeof matchMedia==="function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if(from===undefined || from===to || reduce || typeof requestAnimationFrame!=="function"){ el.textContent=fmt(to); return; }
+  const t0=Date.now(), dur=420;
+  const step=()=>{
+    const k=Math.min(1,(Date.now()-t0)/dur), e=1-Math.pow(1-k,3);
+    el.textContent=fmt(from+(to-from)*e);
+    if(k<1 && tweenState[key]===to) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
 /* ---------- render ---------- */
 function render(){
   document.querySelectorAll("#tabs button").forEach(b=>b.setAttribute("aria-selected",b.dataset.tab===tab));
   let debt=0,pre=0;
   active().forEach(st=>{ const b=balanceOf(st).balance; if(b<0)debt+=-b; else pre+=b; });
-  $("sumDebt").textContent=rub(debt); $("sumPre").textContent=rub(pre);
+  tween($("sumDebt"),debt,rub); tween($("sumPre"),pre,rub);
   const pendC=allEvents().filter(e=>e.type==="cancel"&&e.status==="pending").length;
   $("sumPend").textContent=unmarkedPast().length+pendC;
 
@@ -716,6 +770,16 @@ function render(){
       html += (html?"<br>":"")+"Давно не было резервной копии. Нажмите «Резервная копия» → «Скачать файл», чтобы записи не потерялись.";
   }
   n.hidden=!html; n.innerHTML=html;
+  const ri=$("repNotice");
+  if(ri){
+    const dnum=new Date().getDate(), rd=Math.min(28,Math.max(1,+ui.reportDay||25));
+    let doneM=null; try{ doneM=localStorage.getItem("tutor-rep-done"); }catch(e){}
+    const due = dnum>=rd && doneM!==today().slice(0,7) && active().length>0;
+    ri.hidden=!due;
+    if(due) ri.innerHTML=`Пора отправить отчёты за ${monthLabel(today().slice(0,7))}. Тексты готовы по всем ученикам.
+      <div class="btns"><button class="sm done" type="button" data-allrep="1">Открыть отчёты</button>
+      <button class="sm" type="button" data-repdone="1">Уже отправил</button></div>`;
+  }
 
   const v=$("view");
   if(tab==="today") v.innerHTML=viewToday();
@@ -740,8 +804,8 @@ function slotRow(g){
   const who=`<div class="who"><b>${esc(names)}</b><small>${sub}${group.length>1?" · пара":""}</small></div>`;
   if(s==="open") return `<div class="prow">${who}<div class="btns">
     <button class="sm done" type="button" data-done="${key}">Проведено</button>
-    <button class="sm" type="button" data-tweak="${key}" title="Изменить время и длительность">✎</button>
-    <button class="sm" type="button" data-move="${key}" title="Перенести в календаре">⇄</button>
+    <button class="sm" type="button" data-tweak="${key}" title="Изменить время и длительность">✎<span class="btxt"> Изменить</span></button>
+    <button class="sm" type="button" data-move="${key}" title="Перенести на другой день">⇄<span class="btxt"> Перенести</span></button>
     <button class="sm" type="button" data-miss="${key}">Не состоялось</button></div></div>`;
   let label="";
   if(s==="lesson") label=`<span class="st-status done">проведено${st.price>0?" · "+rub(costOf(e,st)):""}</span>`;
@@ -756,14 +820,17 @@ function viewToday(){
   const t=today();
   const sl=slotsOn(t);
   let h=`<div class="sheet box"><h2>Сегодня, ${WD_LONG[new Date().getDay()]}</h2>`;
-  h += sl.length ? groupSlots(sl).map(slotRow).join("") : '<div class="empty">Занятий нет.</div>';
-  h+=`<div class="foot" style="margin-top:8px"><button class="secondary" type="button" data-new="${t}">Доп. занятие или оплата</button></div></div>`;
+  h += sl.length ? groupSlots(sl).map(slotRow).join("") : '<div class="empty">Сегодня занятий по расписанию нет. Разовый урок можно добавить кнопкой ниже.</div>';
+  h+=`<div class="foot" style="margin-top:8px"><button class="secondary" type="button" data-new="${t}">Доп. занятие или оплата</button>
+      <button class="secondary" type="button" data-free2="1">Свободные окна</button></div>
+    <div class="remind"><span>${rem.on?`Напоминание отметить занятия: ${esc(rem.time)}`:"Напоминание выключено"}</span>
+      <button class="sm" type="button" data-openprof="1">Настроить</button></div></div>`;
   let side="";
 
   const um=unmarkedPast();
   if(um.length){
     const byDay={}; um.forEach(x=>{(byDay[x.d]=byDay[x.d]||[]).push(x);});
-    side+=`<div class="sheet box"><h2>Не отмечено</h2><div class="hint">Прошедшие занятия без отметки.</div>`;
+    side+=`<div class="sheet box"><h2>Не отмечено</h2><div class="hint">Прошедшие занятия, по которым вы ещё не сказали, состоялись они или нет. Пока они не отмечены, деньги по ним не посчитаны.</div>`;
     Object.keys(byDay).sort().reverse().forEach(d=>{
       side+=`<div class="prow" style="background:var(--bg);margin:6px -14px 0;padding:6px 14px"><b>${fmtDate(d)}, ${WD[parse(d).getDay()]}</b>
         <button class="sm done" type="button" data-allday="${d}">Все проведены</button></div>`;
@@ -806,7 +873,8 @@ function viewCal(){
   let h = moveGroup ? `<div class="movebar"><span>Выберите новый день для: ${esc(moveGroup.map(x=>x.st.name).join(" и "))}</span><button type="button" data-movecancel="1">Отмена</button></div>` : "";
   h+=`<div class="sheet box"><div class="monthbar"><button class="sm" type="button" data-cm="-1" aria-label="Предыдущий месяц">‹</button><strong>${monthLabel(calMonth)}</strong><button class="sm" type="button" data-cm="1" aria-label="Следующий месяц">›</button></div>
     <div class="cal">${cells}</div>
-    <div class="legend"><span><i class="dot done"></i>проведено</span><span><i class="dot open"></i>по плану</span><span><i class="dot cancel"></i>отмена</span><span><i class="dot skip"></i>перенос / каникулы</span></div></div>`;
+    <div class="legend"><span><i class="dot done"></i>проведено</span><span><i class="dot open"></i>по плану</span><span><i class="dot cancel"></i>отмена</span><span><i class="dot skip"></i>перенос / каникулы</span></div>
+    <div class="hint">Нажмите на день, чтобы отметить занятия или добавить оплату.</div></div>`;
   let side="";
   if(selDay && selDay.slice(0,7)===calMonth){
     const sl=slotsOn(selDay);
@@ -848,7 +916,7 @@ function viewRep(){
     const balCls=r.bal<0?"neg":r.bal>0?"pos":"";
     return `<div class="rep"><div class="rep-h"><b>${esc(st.name)}</b><span class="hint" style="margin:0">${MODES[st.mode]||'<span class="warn">способ оплаты не указан</span>'}${st.price>0?" · "+rub(st.price)+"/ч":""}</span></div>
       <div class="rep-grid">
-        <div><b>${m.held} из ${m.plan}</b><span>занятий проведено / план</span></div>
+        <div><b>${m.held} из ${m.plan}</b><span>проведено из запланированных</span></div>
         <div><b>${fmtH(m.heldH)}</b><span>часов из ${fmtH(m.planH)}</span></div>
         <div><b>${rub(m.cost)}</b><span>стоимость</span></div>
         <div><b>${rub(m.paid)}</b><span>оплачено</span></div>
@@ -857,7 +925,8 @@ function viewRep(){
       <div>Баланс на конец месяца: <b class="${balCls}">${r.bal<0?"долг "+rub(-r.bal):r.bal>0?"аванс "+rub(r.bal):"0 ₽"}</b></div>
       <div class="bill">${r.billText}</div>
       ${m.unmarked?`<div class="hint warn">Не отмечено занятий: ${m.unmarked} — отчёт может быть неточным.</div>`:""}
-      <div class="btns" style="margin-top:8px"><button class="sm" type="button" data-msg="${st.id}">Текст для родителей</button></div></div>`;
+      <div class="btns" style="margin-top:8px"><button class="sm" type="button" data-msg="${st.id}">Отчёт родителю</button>
+      <button class="sm" type="button" data-tpl="${st.id}">Шаблоны сообщений</button></div></div>`;
   }).join("");
   return `<div class="sheet box"><div class="monthbar"><button class="sm" type="button" data-rm="-1" aria-label="Предыдущий месяц">‹</button><strong>Отчёт: ${monthLabel(repMonth)}</strong><button class="sm" type="button" data-rm="1" aria-label="Следующий месяц">›</button></div>
     <div class="rep-grid">
@@ -866,7 +935,68 @@ function viewRep(){
       <div><b>${rub(tot.paid)}</b><span>получено</span></div>
       <div><b>${rub(tot.bill)}</b><span>выставить к оплате</span></div>
     </div></div>
-    <div class="cols wide"><div class="sheet box">${rows}</div><div>${viewYear(repMonth.slice(0,4))}</div></div>`;
+    <div class="cols wide"><div class="sheet box">${rows}</div><div>${viewYear(repMonth.slice(0,4))}${viewAnalytics(repMonth.slice(0,4))}</div></div>`;
+}
+function yearStats(y){
+  const months12=[]; let totH=0,totC=0,totP=0,held=0,lost=0,canc=0,moved=0;
+  const perStudent={};
+  for(let i=1;i<=12;i++){
+    const k=y+"-"+pad(i); let h=0,c=0,p=0;
+    students.forEach(st=>{
+      (months[k]||[]).filter(e=>e.sid===st.id).forEach(e=>{
+        if(e.type==="lesson"){ h+=hoursOf(e,st); held++; }
+        if(e.type==="payment") p+=+e.amount||0;
+        if(e.type==="cancel"){ canc++; if(e.status==="free") lost+=hoursOf(e,st)*rateOf(e,st); }
+        if(e.type==="moved") moved++;
+        const cost=costOf(e,st); c+=cost;
+        if(cost||e.type==="lesson"){
+          const r=perStudent[st.id]||(perStudent[st.id]={name:st.name,sum:0,hours:0});
+          r.sum+=cost; if(e.type==="lesson") r.hours+=hoursOf(e,st);
+        }
+      });
+    });
+    months12.push({k,month:i,h,c,p}); totH+=h; totC+=c; totP+=p;
+  }
+  const activeM=months12.filter(m=>m.c>0||m.h>0);
+  const avg=activeM.length?totC/activeM.length:0;
+  const best=activeM.slice().sort((a,b)=>b.c-a.c)[0]||null;
+  const rank=Object.values(perStudent).sort((a,b)=>b.sum-a.sum);
+  return {months12,activeM,totH,totC,totP,avg,best,rank,held,lost,canc,moved};
+}
+function viewAnalytics(y){
+  const d=yearStats(y);
+  if(!d.activeM.length) return `<div class="sheet box"><h2>Аналитика ${y}</h2><div class="empty">Пока нет данных за этот год. Отметьте занятия — появится статистика.</div></div>`;
+  const max=Math.max(...d.months12.map(m=>m.c),1);
+  const bars=d.months12.map(m=>`<div class="b" title="${MONTHS[m.month-1]}: ${rub(m.c)}">
+    <div class="bar" style="height:${Math.round((m.c/max)*100)}%;${m.c?"":"background:var(--grid)"}"></div>
+    <div class="bl">${MONTHS[m.month-1].slice(0,3)}</div></div>`).join("");
+  const maxS=d.rank.length?d.rank[0].sum:1;
+  const ranks=d.rank.slice(0,8).map(r=>`<div class="rank"><div class="rl">${esc(r.name)} <span class="hint" style="margin:0">· ${fmtH(r.hours)}</span>
+    <div class="rb"><i style="width:${Math.round((r.sum/maxS)*100)}%"></i></div></div><b>${rub(r.sum)}</b></div>`).join("");
+  const perH = d.totH ? d.totC/d.totH : 0;
+  const ins=[];
+  if(d.best) ins.push(`Самый прибыльный месяц — ${MONTHS[d.best.month-1]}: ${rub(d.best.c)}.`);
+  if(d.lost>0) ins.push(`На отменах без оплаты потеряно ${rub(d.lost)} — это ${Math.round(d.lost/Math.max(d.totC,1)*100)}% от заработанного.`);
+  if(d.totC-d.totP>0) ins.push(`Получено меньше, чем заработано, на ${rub(d.totC-d.totP)} — часть денег ещё не пришла.`);
+  if(d.rank.length>2) ins.push(`${esc(d.rank[0].name)} приносит ${Math.round(d.rank[0].sum/Math.max(d.totC,1)*100)}% дохода.`);
+  return `<div class="sheet box"><h2>Аналитика ${y}</h2>
+    <div class="kpi">
+      <div><b>${rub(d.totC)}</b><span>заработано за год</span></div>
+      <div><b>${rub(d.avg)}</b><span>в среднем за месяц</span></div>
+      <div><b>${fmtH(d.totH)}</b><span>часов проведено</span></div>
+      <div><b>${rub(perH)}</b><span>средняя ставка в час</span></div>
+    </div>
+    <div class="bars">${bars}</div>
+    <div class="hint">Заработано по месяцам</div>
+    ${ins.map(t=>`<div class="insight">${t}</div>`).join("")}
+    <h2 style="margin-top:14px">Кто сколько приносит</h2>
+    ${ranks||'<div class="empty">Нет данных.</div>'}
+    <div class="kpi" style="margin-top:12px">
+      <div><b>${d.held}</b><span>${plural(d.held,"занятие","занятия","занятий")} проведено</span></div>
+      <div><b>${d.moved}</b><span>${plural(d.moved,"перенос","переноса","переносов")}</span></div>
+      <div><b>${d.canc}</b><span>${plural(d.canc,"отмена","отмены","отмен")}</span></div>
+      <div><b>${rub(d.lost)}</b><span>потеряно на отменах</span></div>
+    </div></div>`;
 }
 function viewYear(y){
   let rowsH="", totH=0, totC=0, totP=0;
@@ -973,6 +1103,8 @@ function viewSettings(){
           <div class="ctl"><select id="uiAccent">${acc}</select></div></div>
         <div class="setrow"><div class="lbl"><b>Плотность</b><span>Компактный режим для больших экранов</span></div>
           <div class="ctl"><label><input type="checkbox" id="uiDense" ${ui.dense?"checked":""} style="width:auto;margin-right:6px">компактно</label></div></div>
+        <div class="setrow"><div class="lbl"><b>День отчёта</b><span>Число месяца, когда напомнить отправить отчёты родителям</span></div>
+          <div class="ctl"><input type="number" id="uiRepDay" min="1" max="28" value="${Math.min(28,Math.max(1,+ui.reportDay||25))}" style="width:90px"></div></div>
         <div class="setrow"><div class="lbl"><b>Размер окна</b><span>${TG?"Развернуть мини-приложение на весь экран":"Доступно внутри Telegram"}</span></div>
           <div class="ctl"><button class="sm" type="button" id="uiFull" ${TG?"":"disabled"}>Во весь экран</button></div></div>
         <div class="setrow"><div class="lbl"><b>Название</b><span>Отображается в шапке</span></div>
@@ -1023,6 +1155,7 @@ function bindSettings(){
   $("uiAccent").onchange=()=>{ ui.accent=$("uiAccent").value; saveUI(); };
   $("uiDense").onchange=()=>{ ui.dense=$("uiDense").checked; saveUI(); };
   $("uiTitle").onchange=()=>{ ui.title=$("uiTitle").value; saveUI(); };
+  if($("uiRepDay")) $("uiRepDay").onchange=()=>{ ui.reportDay=Math.min(28,Math.max(1,num($("uiRepDay").value)||25)); saveUI(); render(); };
   const refresh=()=>{ if($("setBody")){ $("setBody").innerHTML=viewSettings(); bindSettings(); } else render(); };
   $("bgPick").onclick=e=>{ const b=e.target.closest("[data-bg]"); if(!b) return;
     ui.bg=b.dataset.bg; ui.bgUrl=""; saveUI(); refresh(); };
@@ -1063,7 +1196,7 @@ function viewStudents(){
         <button class="act pay" type="button" data-q="payment" data-sid="${st.id}">+ Оплата</button>
       </div></div>`;
   }).join("");
-  return `<div class="sheet list">${rows}<button class="addst" type="button" id="addSt">Добавить ученика</button><button class="addst" type="button" id="impSched">Импорт расписания</button></div>`;
+  return `<div class="sheet list">${rows}<button class="addst" type="button" id="addSt">Добавить ученика</button><button class="addst" type="button" id="freeBtn">Свободные окна для нового ученика</button><button class="addst" type="button" id="impSched">Импорт расписания</button></div>`;
 }
 
 document.addEventListener("click",e=>{
@@ -1076,6 +1209,10 @@ document.addEventListener("click",e=>{
   else if(a.undo && slotRegistry[a.undo]) slotRegistry[a.undo].forEach(x=>undoSlot(x.ev));
   else if(a.move && slotRegistry[a.move]) startMove(slotRegistry[a.move]);
   else if(a.tweak && slotRegistry[a.tweak]) openTweak(slotRegistry[a.tweak]);
+  else if(a.openprof) openProfile();
+  else if(a.allrep) openAllReports();
+  else if(a.tpl) openTemplates(a.tpl);
+  else if(a.repdone){ try{ localStorage.setItem("tutor-rep-done",today().slice(0,7)); }catch(e){} render(); }
   else if(a.movecancel){ moveGroup=null; render(); }
   else if(a.setdate) openSetDate(a.setdate);
   else if(a.undomoved) undoSlot(findEv(a.undomoved));
@@ -1091,7 +1228,96 @@ document.addEventListener("click",e=>{
   else if(a.open) openDetail(a.open);
   else if(t.id==="addSt") openStudentForm(null);
   else if(t.id==="impSched") openImport();
+  else if(t.id==="freeBtn") openFree();
+  else if(a.free2) openFree();
 });
+
+/* ---------- свободные окна ---------- */
+const toMinutes = t => { if(!t) return null; const [h,m]=t.split(":").map(Number); return h*60+m; };
+const fromMinutes = m => pad(Math.floor(m/60))+":"+pad(m%60);
+function busyOn(d){
+  const out=[];
+  slotsOn(d).forEach(sl=>{
+    const stt=slotStatus(sl);
+    if(stt==="skip"||stt==="moved"||stt==="cancel") return;
+    const t=toMinutes(sl.time);
+    if(t===null) return;
+    out.push([t, t+Math.round((sl.hours||1)*60)]);
+  });
+  return out.sort((a,b)=>a[0]-b[0]);
+}
+function freeOn(d, fromM, toM, lenM, stepM){
+  const busy=busyOn(d), out=[];
+  for(let t=fromM; t+lenM<=toM; t+=stepM){
+    const end=t+lenM;
+    if(!busy.some(b=>t<b[1] && end>b[0])) out.push(t);
+  }
+  // убираем вложенные подряд идущие варианты: оставляем начала с шагом длительности от первого свободного
+  const kept=[]; let last=-1e9;
+  out.forEach(t=>{ if(t-last>=Math.min(lenM,60)){ kept.push(t); last=t; } });
+  return kept;
+}
+function freeSlots(){
+  const fromM=toMinutes(ui.workFrom||"17:00"), toM=toMinutes(ui.workTo||"21:00");
+  const lenM=Math.round((+ui.slotLen||1)*60), days=Math.min(28,Math.max(3,+ui.slotDays||14));
+  const res=[];
+  for(let i=0;i<days;i++){
+    const d=addDays(today(),i);
+    if(fromM===null||toM===null||toM-fromM<lenM) break;
+    const slots=freeOn(d,fromM,toM,lenM,30);
+    if(slots.length) res.push({d,slots});
+  }
+  return res;
+}
+function openFree(){
+  detailSid=null;
+  openModal(`<h3>Свободные окна</h3>
+    <div class="hint" style="margin-top:-6px">Считаю по расписанию: занятые часы, переносы и отмены учтены.</div>
+    <div class="row3">
+      <div><label for="fwFrom">С</label><input type="time" id="fwFrom" step="300" value="${esc(ui.workFrom||"17:00")}"></div>
+      <div><label for="fwTo">До</label><input type="time" id="fwTo" step="300" value="${esc(ui.workTo||"21:00")}"></div>
+      <div><label for="fwLen">Занятие, часов</label>${hoursInput("fwLen",+ui.slotLen||1)}</div>
+    </div>
+    <div id="fwBody" style="margin-top:10px"></div>
+    <label for="fwText" style="margin-top:12px">Текст для ученика</label>
+    <textarea id="fwText" style="min-height:90px"></textarea>
+    <div class="hint" id="fwHint">Отметьте подходящие окна — они попадут в текст.</div>
+    <div class="foot"><button class="secondary" type="button" id="fwClose">Закрыть</button><button class="primary" type="button" id="fwCopy">Скопировать текст</button></div>`);
+  let picked=[];
+  const drawText=()=>{
+    const lenH=+$("fwLen").value||1;
+    if(!picked.length){ $("fwText").value="Здравствуйте! Свободное время есть, напишите, какой день вам удобен, и подберём."; return; }
+    const byDay={};
+    picked.forEach(p=>{ (byDay[p.d]=byDay[p.d]||[]).push(p.t); });
+    const parts=Object.keys(byDay).sort().map(d=>{
+      const times=byDay[d].sort((a,b)=>a-b).map(t=>fromMinutes(t)).join(" или ");
+      return `${WD_LONG[parse(d).getDay()]} ${fmtDate(d)} — ${times}`;
+    });
+    const sign=(ui.owner||"").trim()?`\n\nС уважением, ${ui.owner.trim()}`:"";
+    $("fwText").value=`Здравствуйте! Занятие длится ${fmtH(lenH)}. Свободные окна:\n`+parts.map(x=>"• "+x).join("\n")+`\n\nНапишите, какой вариант удобнее, и я закреплю это время.${sign}`;
+  };
+  const draw=()=>{
+    ui.workFrom=$("fwFrom").value||"17:00"; ui.workTo=$("fwTo").value||"21:00"; ui.slotLen=num($("fwLen").value)||1;
+    saveUI();
+    const list=freeSlots();
+    picked=picked.filter(p=>list.some(x=>x.d===p.d && x.slots.includes(p.t)));
+    $("fwBody").innerHTML = list.length ? list.map(x=>`<div class="freeday"><b>${WD[parse(x.d).getDay()]}, ${fmtDate(x.d)}</b>
+      <div class="chips">${x.slots.map(t=>`<button class="chip free" type="button" data-d="${x.d}" data-t="${t}" aria-pressed="${picked.some(p=>p.d===x.d&&p.t===t)}">${fromMinutes(t)}</button>`).join("")}</div></div>`).join("")
+      : '<div class="empty">Свободных окон в этом промежутке нет. Попробуйте расширить рамки времени или уменьшить длительность.</div>';
+    $("fwBody").querySelectorAll("[data-t]").forEach(b=>b.onclick=e=>{
+      e.stopPropagation();
+      const d=b.dataset.d, t=+b.dataset.t, i=picked.findIndex(p=>p.d===d&&p.t===t);
+      if(i>-1) picked.splice(i,1); else picked.push({d,t});
+      b.setAttribute("aria-pressed", i===-1);
+      drawText();
+    });
+    drawText();
+  };
+  $("fwFrom").onchange=draw; $("fwTo").onchange=draw; $("fwLen").oninput=draw;
+  $("fwClose").onclick=closeModal;
+  $("fwCopy").onclick=()=>copyText($("fwText"),$("fwHint"));
+  draw();
+}
 
 /* ---------- modal ---------- */
 let detailSid=null, detailMonth=today().slice(0,7), pendingDelete=null;
@@ -1266,6 +1492,83 @@ function openSetDate(id){
   };
 }
 
+const TPL=[
+  {id:"remind",  name:"Напоминание о занятии",  need:"next"},
+  {id:"move",    name:"Перенос занятия",        need:"next"},
+  {id:"pay",     name:"Просьба об оплате",      need:"bal"},
+  {id:"thanks",  name:"Подтверждение оплаты",   need:"bal"},
+  {id:"holiday", name:"Каникулы / пропуск",     need:"next"},
+  {id:"invite",  name:"Поделиться с коллегой",  need:"none"}
+];
+function nextLesson(st){
+  for(let i=0;i<120;i++){
+    const d=addDays(today(),i);
+    const sl=slotsOn(d).find(x=>x.st.id===st.id && slotStatus(x)==="open");
+    if(sl) return sl;
+  }
+  return null;
+}
+function tplText(id,st){
+  const who = st ? (st.parent||"") : "";
+  const hi = "Добрый день"+(who?", "+who:"")+"!";
+  const sign = (ui.owner||"").trim() ? "\n\nС уважением, "+ui.owner.trim() : "";
+  const sl = st ? nextLesson(st) : null;
+  const when = sl ? `${fmtDate(sl.d)}, ${WD_LONG[parse(sl.d).getDay()]}${sl.time?", в "+sl.time:""}` : "";
+  const bal = st ? balanceOf(st).balance : 0;
+  const nm = st ? ` (${st.name})` : "";
+  switch(id){
+    case "remind":
+      return `${hi} Напоминаю о занятии${nm}.`+(when?` Ближайшее: ${when}, ${fmtH(sl.hours)}.`:"")+` Если планы изменятся, напишите, пожалуйста, заранее.${sign}`;
+    case "move":
+      return `${hi} Нужно перенести занятие${nm}`+(when?` ${when}`:"")+`. Подскажите, какое время вам удобно — предложу варианты из расписания.${sign}`;
+    case "pay":
+      return `${hi} `+(bal<0?`По занятиям${nm} к оплате ${rub(-bal)}.`:`Занятия${nm} оплачены вперёд${bal>0?`, аванс ${rub(bal)}`:""}.`)+` Реквизиты прежние, подтверждение можно прислать сюда.${sign}`;
+    case "thanks":
+      return `${hi} Оплату получил, спасибо! `+(bal>0?`Аванс сейчас ${rub(bal)}.`:"Все проведённые занятия оплачены.")+` Занятия идут по расписанию.${sign}`;
+    case "holiday":
+      return `${hi} Занятие${nm}`+(when?` ${when}`:"")+` не состоится, оплату за него не беру. Следующее — по обычному расписанию. Если удобно позаниматься в другой день, напишите.${sign}`;
+    case "invite":
+      return `Привет! Веду учёт занятий и оплат в небольшом приложении: расписание, переносы, отмены, баланс по каждому ученику и готовый отчёт родителям в конце месяца. Работает прямо в Telegram, бесплатно: t.me/Tutor_tutorr_bot${sign}`;
+    default: return "";
+  }
+}
+function openTemplates(sid){
+  detailSid=null;
+  const opts=active().map(x=>`<option value="${x.id}" ${x.id===sid?"selected":""}>${esc(x.name)}</option>`).join("");
+  openModal(`<h3>Шаблоны сообщений</h3>
+    <label for="tpSt">Ученик</label><select id="tpSt">${opts}</select>
+    <div id="tpList" style="margin-top:10px"></div>
+    <div class="foot"><button class="primary" type="button" id="tpClose">Закрыть</button></div>`);
+  const draw=()=>{
+    const st=byId($("tpSt").value);
+    $("tpList").innerHTML=TPL.map((t,i)=>`<div class="tpl"><b>${t.name}</b>
+      <textarea id="tp${i}" style="min-height:90px">${esc(tplText(t.id,st))}</textarea>
+      <div class="btns" style="margin-top:6px"><button class="sm done" type="button" data-tpc="${i}">Скопировать</button>
+      ${st&&st.contact&&/^@/.test(st.contact)&&t.id!=="invite"?`<a class="sm" href="https://t.me/${esc(st.contact.slice(1))}" target="_blank" rel="noopener">Открыть чат</a>`:""}
+      <span class="hint" id="tph${i}" style="margin:0"></span></div></div>`).join("");
+    $("tpList").querySelectorAll("[data-tpc]").forEach(b=>b.onclick=e=>{ e.stopPropagation(); copyText($("tp"+b.dataset.tpc),$("tph"+b.dataset.tpc)); });
+  };
+  $("tpSt").onchange=draw; draw();
+  $("tpClose").onclick=closeModal;
+}
+
+function openAllReports(){
+  detailSid=null;
+  const key=today().slice(0,7);
+  const list=active().map(st=>({st,text:parentText(st,key)}));
+  openModal(`<h3>Отчёты за ${monthLabel(key)}</h3>
+    <div class="hint" style="margin-top:-6px">Тексты готовы — скопируйте и отправьте каждому родителю.</div>
+    ${list.map((x,i)=>`<div class="allrep"><b>${esc(x.st.name)}${x.st.parent?" · "+esc(x.st.parent):""}${x.st.contact?" · "+esc(x.st.contact):""}</b>
+      <textarea id="ar${i}">${esc(x.text)}</textarea>
+      <div class="btns" style="margin-top:6px"><button class="sm done" type="button" data-arcopy="${i}">Скопировать</button>
+      ${x.st.contact&&/^@/.test(x.st.contact)?`<a class="sm" href="https://t.me/${esc(x.st.contact.slice(1))}" target="_blank" rel="noopener">Открыть чат</a>`:""}</div>
+      <div class="hint" id="arh${i}"></div></div>`).join("")}
+    <div class="foot"><button class="secondary" type="button" id="arDone">Пометить как отправленные</button><button class="primary" type="button" id="arClose">Закрыть</button></div>`);
+  $("modal").querySelectorAll("[data-arcopy]").forEach(b=>b.onclick=e=>{ e.stopPropagation(); const i=b.dataset.arcopy; copyText($("ar"+i),$("arh"+i)); });
+  $("arClose").onclick=closeModal;
+  $("arDone").onclick=()=>{ try{ localStorage.setItem("tutor-rep-done",key); }catch(e){} closeModal(); render(); };
+}
+
 function openParentMsg(sid){
   const st=byId(sid); detailSid=null;
   openModal(`<h3>Сообщение: ${esc(st.name)}</h3>
@@ -1389,11 +1692,12 @@ function renderDetail(){
       <div><b>${rub(m.paid)}</b><span>получено оплат</span></div>
     </div>
     <div>${hist}</div>
-    <div class="foot"><button class="secondary" type="button" id="dEdit">Настройки</button><button class="primary" type="button" id="dClose">Готово</button></div>`;
+    <div class="foot"><button class="secondary" type="button" id="dTpl">Шаблоны сообщений</button><button class="secondary" type="button" id="dEdit">Настройки</button><button class="primary" type="button" id="dClose">Готово</button></div>`;
   $("mPrev").onclick=()=>{detailMonth=shiftMonth(detailMonth,-1);pendingDelete=null;renderDetail();};
   $("mNext").onclick=()=>{detailMonth=shiftMonth(detailMonth,1);pendingDelete=null;renderDetail();};
   $("dClose").onclick=closeModal;
   $("dEdit").onclick=()=>openStudentForm(st.id);
+  $("dTpl").onclick=()=>openTemplates(st.id);
   $("det").querySelectorAll("[data-del]").forEach(btn=>btn.onclick=ev=>{
     ev.stopPropagation(); const id=btn.dataset.del;
     if(pendingDelete===id){ pendingDelete=null; change(()=>{ const e=findEv(id); if(e&&e.child){ const c=findEv(e.child); if(c) _resetOrDelete(c); } _del(id); }); }
