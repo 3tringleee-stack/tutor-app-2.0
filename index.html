@@ -3,38 +3,42 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Учёт занятий и оплат</title>
+<title>Табель — учёт занятий и оплат</title>
+<meta name="description" content="Табель — учёт занятий и оплат для репетитора: расписание, переносы, отмены, баланс по каждому ученику и отчёты родителям.">
+<meta name="theme-color" content="#5B4B8A">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="%235B4B8A"/><path d="M16 19h32v6.5H36.6V45h-9.2V25.5H16z" fill="%23fff"/><g fill="%23fff" opacity=".55"><circle cx="23" cy="51.5" r="2.4"/><circle cx="32" cy="51.5" r="2.4"/><circle cx="41" cy="51.5" r="2.4"/></g></svg>">
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 :root{
-  --bg:#EEF2F6; --paper:#FFFFFF; --grid:#DCE4EC; --ink:#1B2733; --muted:#5E6E7D; --line:#D5DDE5;
-  --blue:#2B5C8A; --blue-soft:#E3EDF6; --red:#B8322A; --red-soft:#F8E6E4; --green:#2D7A4E; --green-soft:#E2F2E8;
-  --amber:#9A6A12; --amber-soft:#FBF0D9;
+  --bg:#F5F4F2; --paper:#FFFFFF; --grid:#EDEBE8; --ink:#24202B; --muted:#7A7486; --line:#E7E2DC;
+  --blue:#5B4B8A; --blue-soft:#EFEBF8; --red:#A8405A; --red-soft:#FAEAEE; --green:#3C7A63; --green-soft:#E6F3ED;
+  --amber:#9A6A2E; --amber-soft:#FBF1E2;
+  --r:16px; --r-sm:10px; --shadow:none;
 }
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]){
-    --bg:#141A21; --paper:#1D252E; --grid:#232D37; --ink:#E6ECF1; --muted:#98A6B3; --line:#313C47;
-    --blue:#7FB0DE; --blue-soft:#22364A; --red:#EF8A80; --red-soft:#43241F; --green:#7ACB9A; --green-soft:#1D3A29;
-    --amber:#E2B45C; --amber-soft:#3E3119;
+    --bg:#17151C; --paper:#201D28; --grid:#2B2735; --ink:#EDE9F2; --muted:#9E97AC; --line:#332E3E;
+    --blue:#B3A4E0; --blue-soft:#2C2640; --red:#E8909F; --red-soft:#3B242C; --green:#88C9AE; --green-soft:#1F3730;
+    --amber:#DDB278; --amber-soft:#3A2F20;
+    --shadow:none;
   }
 }
 :root[data-theme="dark"]{
-  --bg:#141A21; --paper:#1D252E; --grid:#232D37; --ink:#E6ECF1; --muted:#98A6B3; --line:#313C47;
-  --blue:#7FB0DE; --blue-soft:#22364A; --red:#EF8A80; --red-soft:#43241F; --green:#7ACB9A; --green-soft:#1D3A29;
-  --amber:#E2B45C; --amber-soft:#3E3119;
+  --bg:#17151C; --paper:#201D28; --grid:#2B2735; --ink:#EDE9F2; --muted:#9E97AC; --line:#332E3E;
+  --blue:#B3A4E0; --blue-soft:#2C2640; --red:#E8909F; --red-soft:#3B242C; --green:#88C9AE; --green-soft:#1F3730;
+  --amber:#DDB278; --amber-soft:#3A2F20;
+  --shadow:none;
 }
 *{box-sizing:border-box}
 html,body{margin:0}
 body{
   background-color:var(--bg);
-  background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);
-  background-size:22px 22px;
   background-attachment:fixed;
-  color:var(--ink); font-family:"Manrope",system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
-  font-size:15px; line-height:1.45; font-variant-numeric:tabular-nums;
+  color:var(--ink); font-family:"Onest",system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+  font-size:15px; line-height:1.5; font-variant-numeric:tabular-nums; -webkit-font-smoothing:antialiased;
 }
 button,input,select,textarea{font:inherit;color:inherit}
 button{cursor:pointer}
@@ -42,11 +46,12 @@ button{cursor:pointer}
 #bg{position:fixed;inset:0;z-index:-2;background-size:cover;background-position:center;background-attachment:fixed}
 #bgveil{position:fixed;inset:0;z-index:-1;background:transparent;backdrop-filter:saturate(1.05)}
 body.hasbg{background-image:none}
+body.plain{background-image:none}
 body.hasbg #bgveil{background:color-mix(in srgb,var(--bg) 72%,transparent)}
 body.hasbg .sheet{backdrop-filter:blur(8px)}
 .wrap{max-width:1180px;margin:0 auto;padding:20px 16px 90px}
 .brand{display:flex;gap:12px;align-items:center}
-.mark{width:42px;height:42px;border-radius:13px;background:linear-gradient(145deg,var(--blue),color-mix(in srgb,var(--blue) 55%,var(--green)));color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:19px;flex:none}
+.mark{width:42px;height:42px;border-radius:12px;overflow:hidden;background:linear-gradient(145deg,var(--blue),color-mix(in srgb,var(--blue) 55%,var(--green)));color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:19px;flex:none}
 .cols{display:grid;gap:14px;align-items:start}
 @media (min-width:900px){
   .cols{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
@@ -58,7 +63,7 @@ body.hasbg .sheet{backdrop-filter:blur(8px)}
   h1{font-size:30px}
 }
 @media (min-width:1280px){ .cols.three{grid-template-columns:repeat(3,minmax(0,1fr))} }
-.sheet{box-shadow:0 1px 2px rgba(16,24,32,.04)}
+
 .setrow{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 0;border-top:1px solid var(--line)}
 .setrow:first-of-type{border-top:0}
 .setrow .lbl b{display:block;font-size:14.5px}
@@ -72,16 +77,16 @@ body.hasbg .sheet{backdrop-filter:blur(8px)}
 header{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;margin-bottom:12px;flex-wrap:wrap}
 h1{font-size:26px;line-height:1.15;margin:0;font-weight:800;letter-spacing:-.01em}
 .sub{color:var(--muted);font-size:13px;margin-top:4px}
-.ghost{border:1px solid var(--line);border-radius:10px;padding:7px 12px;background:var(--paper)}
-.sheet{background:var(--paper);border:1px solid var(--line);border-radius:14px}
-.tabs{display:flex;gap:4px;padding:4px;margin-bottom:12px;overflow-x:auto}
-.tabs button{flex:1;border:0;background:transparent;border-radius:10px;padding:9px 8px;font-weight:700;white-space:nowrap;color:var(--muted)}
-.tabs button[aria-selected="true"]{background:var(--blue);color:var(--paper)}
+.ghost{border:1px solid var(--line);border-radius:12px;padding:8px 14px;background:var(--paper);font-weight:600}
+.sheet{background:var(--paper);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow)}
+.tabs{display:flex;gap:3px;padding:4px;margin-bottom:12px;overflow-x:auto}
+.tabs button{flex:1;border:0;background:transparent;border-radius:11px;padding:10px;font-weight:600;white-space:nowrap;color:var(--muted)}
+.tabs button[aria-selected="true"]{background:var(--blue);color:#fff;font-weight:700}
 .summary{display:grid;grid-template-columns:repeat(3,1fr);margin-bottom:12px;overflow:hidden}
-.summary div{padding:11px 14px;border-right:1px solid var(--line)}
+.summary div{padding:14px 16px;border-right:1px solid var(--line)}
 .summary div:last-child{border-right:0}
-.summary b{display:block;font-size:20px;font-weight:800}
-.summary span{font-size:12.5px;color:var(--muted)}
+.summary b{display:block;font-size:24px;font-weight:700;letter-spacing:-.02em;line-height:1.15}
+.summary span{font-size:12px;color:var(--muted);margin-top:2px;display:block}
 .debt b{color:var(--red)} .pre b{color:var(--green)} .pend b{color:var(--amber)}
 .notice{padding:10px 14px;margin-bottom:12px;font-size:13.5px;background:var(--amber-soft);border-color:transparent}
 .box{padding:12px 14px;margin-bottom:12px}
@@ -92,21 +97,30 @@ h1{font-size:26px;line-height:1.15;margin:0;font-weight:800;letter-spacing:-.01e
 .prow .who b{font-weight:700}
 .prow .who small{color:var(--muted);font-size:12.5px;margin-left:4px}
 .btns{display:flex;gap:6px;flex-wrap:wrap}
-.sm{border:1px solid var(--line);background:var(--paper);border-radius:8px;padding:5px 10px;font-size:13px;font-weight:600}
+.sm{border:1px solid var(--line);background:var(--paper);border-radius:10px;padding:6px 11px;font-size:13px;font-weight:600}
 .sm.done{background:var(--blue-soft);color:var(--blue);border-color:transparent}
 .sm.bad{color:var(--red)}
-.st-status{font-size:13px;font-weight:700}
-.st-status.done{color:var(--blue)} .st-status.cancel{color:var(--red)} .st-status.skip{color:var(--muted)} .st-status.open{color:var(--amber)}
+.st-status{font-size:13px;font-weight:600;color:var(--muted);display:inline-flex;align-items:center;gap:6px}
+.st-status::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor;flex:none}
+.st-status.done{color:var(--blue)}
+.st-status.cancel{color:var(--red)}
+.st-status.skip{color:var(--muted)}
+.st-status.open{color:var(--amber)}
 .list{overflow:hidden}
-.st{display:grid;grid-template-columns:1fr auto;gap:8px 12px;padding:12px 14px;border-top:1px solid var(--line);align-items:center}
+.st{display:grid;grid-template-columns:1fr auto;gap:8px 12px;padding:14px 16px 14px 20px;border-top:1px solid var(--line);align-items:center;position:relative}
 .st:first-child{border-top:0}
-.name{background:none;border:0;padding:0;text-align:left;font-weight:700;font-size:16px}
+.st::before{content:"";position:absolute;left:0;top:10px;bottom:10px;width:4px;border-radius:0 4px 4px 0;background:var(--line)}
+.st.s-ok::before{background:var(--green)}
+.st.s-debt::before{background:var(--red)}
+.st.s-pre::before{background:var(--blue)}
+.st.s-new::before{background:var(--amber)}
+.name{background:none;border:0;padding:0;text-align:left;font-weight:700;font-size:16.5px;letter-spacing:-.01em}
 .name small{display:block;font-weight:500;color:var(--muted);font-size:12.5px}
 .bal{text-align:right;font-weight:700;white-space:nowrap}
 .bal small{display:block;font-weight:500;font-size:12px;color:var(--muted)}
 .neg{color:var(--red)} .pos{color:var(--green)}
 .acts{grid-column:1/-1;display:flex;gap:6px}
-.act{flex:1;border:1px solid var(--line);background:var(--paper);border-radius:10px;padding:8px 6px;font-weight:600;font-size:14px}
+.act{flex:1;border:1px solid var(--line);background:var(--paper);border-radius:12px;padding:9px 8px;font-weight:600;font-size:14px}
 .act.lesson{background:var(--blue-soft);border-color:transparent;color:var(--blue)}
 .act.pay{background:var(--green-soft);border-color:transparent;color:var(--green)}
 .warn{color:var(--amber);font-weight:600}
@@ -116,10 +130,10 @@ h1{font-size:26px;line-height:1.15;margin:0;font-weight:800;letter-spacing:-.01e
 /* calendar */
 .cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
 .cal .wd{font-size:12px;color:var(--muted);text-align:center;padding-bottom:2px}
-.day{min-height:62px;border:1px solid var(--line);border-radius:9px;background:var(--paper);padding:4px 5px;text-align:left;display:flex;flex-direction:column;gap:3px}
+.day{min-height:62px;border:1px solid var(--line);border-radius:12px;background:var(--paper);padding:6px 7px;text-align:left;display:flex;flex-direction:column;gap:3px}
 .day.out{visibility:hidden}
-.day.today{border-color:var(--blue);box-shadow:inset 0 0 0 1px var(--blue)}
-.day.sel{background:var(--blue-soft)}
+.day.today{border-color:var(--blue);box-shadow:inset 0 0 0 1.5px var(--blue)}
+.day.sel{background:var(--blue-soft);border-color:transparent}
 .day .n{font-size:13px;font-weight:700}
 .dots{display:flex;flex-wrap:wrap;gap:3px}
 .dot{width:8px;height:8px;border-radius:50%}
@@ -132,7 +146,7 @@ h1{font-size:26px;line-height:1.15;margin:0;font-weight:800;letter-spacing:-.01e
 .rep-h{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap}
 .rep-h b{font-size:16px}
 .rep-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:8px 0}
-.rep-grid div{border:1px solid var(--line);border-radius:9px;padding:6px 8px}
+.rep-grid div{border:1px solid var(--line);border-radius:12px;padding:8px 10px;background:var(--bg)}
 .rep-grid b{display:block;font-size:15px}
 .rep-grid span{font-size:11.5px;color:var(--muted)}
 .bill{font-weight:700}
@@ -140,8 +154,8 @@ h1{font-size:26px;line-height:1.15;margin:0;font-weight:800;letter-spacing:-.01e
 /* modal */
 .back{position:fixed;inset:0;background:rgba(10,16,22,.45);display:none;align-items:flex-end;justify-content:center;z-index:10}
 .back.open{display:flex}
-.modal{background:var(--paper);width:100%;max-width:560px;max-height:92vh;overflow:auto;border-radius:16px 16px 0 0;padding:18px 16px 22px}
-@media (min-width:640px){.back{align-items:center}.modal{border-radius:16px}}
+.modal{background:var(--paper);width:100%;max-width:560px;max-height:92vh;overflow:auto;border-radius:18px 18px 0 0;padding:20px 18px 24px;box-shadow:0 20px 60px -20px rgba(0,0,0,.35)}
+@media (min-width:640px){.back{align-items:center}.modal{border-radius:18px}}
 .modal h3{margin:0 0 12px;font-size:19px;font-weight:800}
 .seg{display:flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-bottom:12px}
 .seg button{flex:1;border:0;background:transparent;padding:9px 4px;font-weight:600}
@@ -150,15 +164,16 @@ h1{font-size:26px;line-height:1.15;margin:0;font-weight:800;letter-spacing:-.01e
 .wdpick button{flex:1;border:1px solid var(--line);background:var(--paper);border-radius:8px;padding:8px 0;font-weight:700}
 .wdpick button[aria-pressed="true"]{background:var(--blue);color:var(--paper);border-color:var(--blue)}
 label{display:block;font-size:13px;color:var(--muted);margin:10px 0 4px}
-input,select,textarea{width:100%;border:1px solid var(--line);background:var(--paper);border-radius:10px;padding:9px 10px}
+input,select,textarea{width:100%;border:1px solid var(--line);background:var(--bg);border-radius:10px;padding:10px 12px}
+input:focus,select:focus,textarea:focus{background:var(--paper);border-color:var(--blue);outline:none}
 textarea{min-height:60px;resize:vertical}
 .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .foot{display:flex;gap:8px;margin-top:16px;flex-wrap:wrap}
-.primary{flex:1;border:0;border-radius:10px;padding:11px;background:var(--blue);color:var(--paper);font-weight:700}
-.secondary{border:1px solid var(--line);border-radius:10px;padding:11px 14px;background:var(--paper)}
+.primary{flex:1;border:0;border-radius:12px;padding:12px;background:var(--blue);color:#fff;font-weight:600}
+.secondary{border:1px solid var(--line);border-radius:12px;padding:12px 16px;background:var(--paper);font-weight:600}
 .hint{font-size:12.5px;color:var(--muted);margin-top:6px}
 .stats{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin:10px 0}
-.stats div{border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.stats div{border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:var(--bg)}
 .stats b{display:block;font-size:17px}
 .stats span{font-size:12px;color:var(--muted)}
 .ev{display:grid;grid-template-columns:78px 1fr auto;gap:8px;padding:8px 0;border-top:1px solid var(--line);align-items:start;font-size:14px}
@@ -174,7 +189,7 @@ textarea{min-height:60px;resize:vertical}
 @media (max-width:420px){.summary b{font-size:17px}.summary div{padding:10px}}
 @media (prefers-reduced-motion:no-preference){.modal{animation:up .18s ease-out}@keyframes up{from{transform:translateY(16px);opacity:.6}to{transform:none;opacity:1}}}
 .choice{display:grid;gap:8px;margin:4px 0 6px}
-.choice button{text-align:left;border:1px solid var(--line);background:var(--paper);border-radius:12px;padding:10px 12px}
+.choice button{text-align:left;border:1px solid var(--line);background:var(--paper);border-radius:12px;padding:12px 14px}
 .choice button b{display:block;font-size:15px}
 .choice button span{font-size:12.5px;color:var(--muted)}
 .choice button[aria-pressed="true"]{border-color:var(--blue);box-shadow:inset 0 0 0 1px var(--blue);background:var(--blue-soft)}
@@ -189,7 +204,7 @@ textarea{min-height:60px;resize:vertical}
 .fill{height:100%;border-radius:99px;background:var(--green)}
 .fill.neg{background:var(--red)}
 .paytxt{font-size:12.5px;color:var(--muted);margin-top:3px}
-.undo{border:1px solid var(--line);background:var(--paper);border-radius:8px;padding:5px 8px;font-size:13px;color:var(--muted)}
+.undo{border:1px solid var(--line);background:var(--paper);border-radius:10px;padding:6px 10px;font-size:13px;color:var(--muted)}
 .remind{display:flex;align-items:center;gap:8px;flex-wrap:wrap;border-top:1px solid var(--line);margin-top:10px;padding-top:10px;font-size:13.5px;color:var(--muted)}
 .remind input[type=time]{width:auto;padding:5px 8px}
 .remind label{margin:0;display:inline;font-size:13.5px}
@@ -253,26 +268,27 @@ textarea{min-height:60px;resize:vertical}
 }
 .kpi{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin:8px 0}
 @media (min-width:640px){.kpi{grid-template-columns:repeat(4,1fr)}}
-.kpi div{border:1px solid var(--line);border-radius:11px;padding:9px 11px}
+.kpi div{border:1px solid var(--line);border-radius:12px;padding:11px 13px;background:var(--bg)}
 .kpi b{display:block;font-size:18px}
 .kpi span{font-size:11.5px;color:var(--muted)}
 .chart{margin:12px 0 2px}
 .chart .ct{font-size:13.5px;font-weight:700;margin-bottom:2px}
 .chart .cs{font-size:12px;color:var(--muted);margin-bottom:8px}
-.bars{display:flex;align-items:flex-end;gap:8px;height:104px;border-bottom:1px solid var(--line);padding-bottom:2px}
-.bars .b{flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:100%;gap:3px;min-width:0}
-.bars .bv{font-size:11px;color:var(--muted);text-align:center;white-space:nowrap}
-.bars .bar{background:var(--blue);border-radius:4px 4px 0 0;min-height:3px;transition:height .45s cubic-bezier(.22,.7,.3,1)}
-.bars .bar.empty{background:var(--grid)}
-.bars .bar.now{outline:2px solid var(--blue);outline-offset:1px}
-.blabels{display:flex;gap:8px;margin-top:5px}
-.blabels div{flex:1;text-align:center;font-size:11px;color:var(--muted);min-width:0;line-height:1.25}
+.hbars{display:grid;gap:7px}
+.hrow{display:grid;grid-template-columns:62px 1fr auto;align-items:center;gap:9px}
+.hrow .hl{font-size:12px;color:var(--muted);white-space:nowrap}
+.hrow .ht{height:12px;border-radius:99px;background:var(--grid);overflow:hidden;position:relative}
+.hrow .ht i{display:block;height:100%;border-radius:99px;background:var(--blue);transition:width .5s cubic-bezier(.22,.7,.3,1)}
+.hrow .hv{font-size:12.5px;font-weight:700;white-space:nowrap;min-width:52px;text-align:right}
+.hrow.zero .hv{color:var(--muted);font-weight:500}
+.hrow.now .hl{color:var(--ink);font-weight:700}
+.hrow.now .ht{box-shadow:0 0 0 2px var(--blue-soft)}
 .rank{display:flex;justify-content:space-between;gap:8px;padding:7px 0;border-top:1px solid var(--line);font-size:14px}
 .rank:first-of-type{border-top:0}
 .rank .rl{flex:1}
 .rank .rb{height:6px;border-radius:99px;background:var(--grid);margin-top:4px;overflow:hidden}
 .rank .rb i{display:block;height:100%;background:var(--blue);border-radius:99px}
-.insight{background:var(--blue-soft);border-radius:11px;padding:9px 11px;font-size:13.5px;margin-top:8px}
+.insight{background:var(--blue-soft);border-radius:12px;padding:11px 13px;font-size:13.5px;margin-top:8px}
 .tpl{border-top:1px solid var(--line);padding:10px 0}
 .tpl:first-of-type{border-top:0}
 .freeday{border-top:1px solid var(--line);padding:9px 0}
@@ -298,7 +314,7 @@ textarea{min-height:60px;resize:vertical}
 .wiz-prog i{flex:1;height:4px;border-radius:99px;background:var(--grid)}
 .wiz-prog i.on{background:var(--blue)}
 .pick{display:grid;gap:8px;margin:6px 0 2px}
-.pick button{text-align:left;border:1px solid var(--line);background:var(--paper);border-radius:12px;padding:12px 14px}
+.pick button{text-align:left;border:1px solid var(--line);background:var(--paper);border-radius:12px;padding:14px 16px}
 .pick button b{display:block;font-size:15px}
 .pick button span{font-size:12.5px;color:var(--muted)}
 .pick button[aria-pressed="true"]{border-color:var(--blue);box-shadow:inset 0 0 0 1px var(--blue);background:var(--blue-soft)}
@@ -310,9 +326,9 @@ textarea{min-height:60px;resize:vertical}
 <div class="wrap">
   <header>
     <div class="brand">
-      <div class="mark" id="brandMark">Ж</div>
+      <div class="mark" id="brandMark"><svg viewBox="0 0 64 64" width="42" height="42" aria-hidden="true"><path d="M16 19h32v6.5H36.6V45h-9.2V25.5H16z" fill="#fff"/><g fill="#fff" opacity=".55"><circle cx="23" cy="51.5" r="2.4"/><circle cx="32" cy="51.5" r="2.4"/><circle cx="41" cy="51.5" r="2.4"/></g></svg></div>
       <div>
-        <h1 id="appTitle">Учёт занятий и оплат</h1>
+        <h1 id="appTitle">Табель</h1>
         <div class="sub" id="syncState">Загрузка…</div>
       </div>
     </div>
@@ -385,20 +401,20 @@ let calMonth=today().slice(0,7), selDay=today(), repMonth=today().slice(0,7);
 
 /* ---------- настройки оформления (на устройстве) ---------- */
 const ACCENTS={
-  blue:["Синий","#2B5C8A","#7FB0DE"],
-  green:["Зелёный","#2A6B4F","#76C9A1"],
-  plum:["Сливовый","#6B3F7A","#C79BD6"],
-  clay:["Терракота","#A04A2A","#E89A74"],
-  slate:["Графит","#3C4A59","#9FB4C8"]
+  blue:["Фиолетовый","#5B4B8A","#B3A4E0"],
+  green:["Зелёный","#3C7A63","#88C9AE"],
+  plum:["Ягодный","#8A3F63","#E0A4BE"],
+  clay:["Терракота","#A0552A","#E8AE84"],
+  slate:["Графит","#454050","#B0A9BE"]
 };
 const BGS={
-  none:["Без фона",""],
+  none:["Чистый",""],
   paper:["Бумага","radial-gradient(1200px 600px at 10% -10%, #F6EFE3 0%, transparent 60%), radial-gradient(900px 500px at 110% 10%, #EDE3D2 0%, transparent 55%), linear-gradient(160deg,#FBF7F0,#EFE7DA)"],
   dusk:["Сумерки","radial-gradient(900px 500px at 0% 0%, #2A3B55 0%, transparent 60%), radial-gradient(900px 600px at 100% 20%, #3B2C4D 0%, transparent 55%), linear-gradient(160deg,#1B2231,#121722)"],
   mint:["Мята","radial-gradient(900px 500px at 20% 0%, #D9F2E6 0%, transparent 60%), linear-gradient(170deg,#EFFAF4,#DCEFE6)"],
-  grid:["Клетка","" ]
+  grid:["Мягкий",""]
 };
-let ui={theme:"",accent:"blue",bg:"grid",bgUrl:"",dense:false,title:"Учёт занятий и оплат",owner:"",reportDay:25,workFrom:"17:00",workTo:"21:00",slotLen:1,slotDays:14};
+let ui={theme:"",accent:"blue",bg:"none",bgUrl:"",dense:false,title:"Табель",owner:"",reportDay:25,workFrom:"17:00",workTo:"21:00",slotLen:1,slotDays:14};
 try{ const u=JSON.parse(localStorage.getItem("tutor-ui")||"null"); if(u) ui={...ui,...u}; }catch(e){}
 function saveUI(){ try{ localStorage.setItem("tutor-ui",JSON.stringify(ui)); }catch(e){} applyUI(); }
 function applyUI(){
@@ -416,11 +432,14 @@ function applyUI(){
   else if(ui.bg && BGS[ui.bg] && BGS[ui.bg][1]) img=BGS[ui.bg][1];
   bgEl.style.backgroundImage=img;
   document.body.classList.toggle("hasbg", !!img);
+  document.body.classList.toggle("plain", ui.bg==="none" && !ui.bgUrl);
   document.body.style.fontSize = ui.dense ? "14px" : "15px";
-  const t=(ui.title||"").trim()||"Учёт занятий и оплат";
+  const t=(ui.title||"").trim()||"Табель";
   document.getElementById("appTitle").textContent=t;
-  document.getElementById("brandMark").textContent=t.trim()[0].toUpperCase();
-  document.title=t;
+  const bm=document.getElementById("brandMark");
+  if(t==="Табель"){ if(!bm.querySelector("svg")) bm.innerHTML='<svg viewBox="0 0 64 64" width="42" height="42" aria-hidden="true"><path d="M16 19h32v6.5H36.6V45h-9.2V25.5H16z" fill="#fff"/><g fill="#fff" opacity=".55"><circle cx="23" cy="51.5" r="2.4"/><circle cx="32" cy="51.5" r="2.4"/><circle cx="41" cy="51.5" r="2.4"/></g></svg>'; }
+  else bm.textContent=t.trim()[0].toUpperCase();
+  document.title=t+(t==="Табель"?" — учёт занятий и оплат":"");
   paintMe();
 }
 function tgUser(){ try{ return (window.Telegram&&window.Telegram.WebApp&&window.Telegram.WebApp.initDataUnsafe||{}).user||null; }catch(e){ return null; } }
@@ -863,9 +882,9 @@ function slotRow(g){
 
 function viewWelcome(){
   return `<div class="sheet hero">
-    <div class="ico">📘</div>
-    <h2>Добро пожаловать</h2>
-    <p>Приложение считает, кто сколько должен, и готовит отчёты родителям. Начнём с ваших учеников — это займёт пару минут.</p>
+    <div class="ico" style="font-size:0;line-height:0"><svg viewBox="0 0 64 64" width="52" height="52" aria-hidden="true"><rect width="64" height="64" rx="16" fill="var(--blue)"/><path d="M16 19h32v6.5H36.6V45h-9.2V25.5H16z" fill="#fff"/><g fill="#fff" opacity=".55"><circle cx="23" cy="51.5" r="2.4"/><circle cx="32" cy="51.5" r="2.4"/><circle cx="41" cy="51.5" r="2.4"/></g></svg></div>
+    <h2>Табель</h2>
+    <p>Учёт занятий и оплат для репетитора. Приложение само считает, кто сколько должен, и готовит отчёты родителям. Начнём с ваших учеников — это займёт пару минут.</p>
     <div class="heroacts">
       <button class="primary" type="button" id="wizStart">Добавить первого ученика</button>
       <button class="secondary" type="button" id="wizGroup">Сразу группу</button>
@@ -1036,10 +1055,10 @@ function viewPulse(key){
   if(!r.heldN && !r.leftN && !r.unmarked && !r.paid) return "";
   const maxW=Math.max(1,...r.weeks.map(w=>w.h));
   const nowWeek=r.weeks.findIndex(w=>w.days && w.days.includes(today()));
-  const bars=r.weeks.map((w,i)=>`<div class="b" title="${w.label} ${MONTHS[+key.slice(5)-1].slice(0,3)}: ${fmtH(w.h)}">
-      <div class="bv">${w.h?fmtH(w.h):""}</div>
-      <div class="bar ${w.h?"":"empty"} ${i===nowWeek?"now":""}" style="height:${Math.round((w.h/maxW)*100)}%"></div></div>`).join("");
-  const labels=r.weeks.map(w=>`<div>${w.label}</div>`).join("");
+  const bars=r.weeks.map((w,i)=>`<div class="hrow ${w.h?"":"zero"} ${i===nowWeek?"now":""}" title="${w.label} ${MONTHS[+key.slice(5)-1].slice(0,3)}: ${fmtH(w.h)}">
+      <span class="hl">${w.label}${i===nowWeek?" •":""}</span>
+      <span class="ht"><i style="width:${Math.round((w.h/maxW)*100)}%"></i></span>
+      <span class="hv">${w.h?fmtH(w.h):"—"}</span></div>`).join("");
   const free=freeSlots()[0];
   return `<div class="sheet box"><h2>${monthLabel(key)} в цифрах</h2>
     <div class="kpi">
@@ -1050,10 +1069,9 @@ function viewPulse(key){
     </div>
     <div class="chart">
       <div class="ct">Часы занятий по неделям</div>
-      <div class="cs">Проведённые и запланированные часы, ${MONTHS[+key.slice(5)-1]}. Максимум за неделю — ${fmtH(maxW)}.</div>
-      <div class="bars">${bars}</div>
-      <div class="blabels">${labels}</div>
-      <div class="cs" style="margin:6px 0 0">числа месяца${nowWeek>=0?" · текущая неделя обведена":""}</div>
+      <div class="cs">Проведённые и запланированные часы. Полоса заполнена относительно самой загруженной недели — ${fmtH(maxW)}.</div>
+      <div class="hbars">${bars}</div>
+      <div class="cs" style="margin:7px 0 0">слева — числа месяца${nowWeek>=0?", точкой отмечена текущая неделя":""}</div>
     </div>
     ${r.unmarked?`<div class="insight">Не отмечено занятий: ${r.unmarked}. <button class="sm done" type="button" data-gotoday="1" style="margin-left:6px">Отметить</button></div>`:""}
     ${(r.movedN||r.cancN)?`<div class="hint">Переносов: ${r.movedN} · отмен: ${r.cancN}</div>`:""}
@@ -1205,10 +1223,11 @@ function viewAnalytics(y){
   const d=yearStats(y);
   if(!d.activeM.length) return `<div class="sheet box"><h2>Аналитика ${y}</h2><div class="empty">Пока нет данных за этот год. Отметьте занятия — появится статистика.</div></div>`;
   const max=Math.max(...d.months12.map(m=>m.c),1);
-  const bars=d.months12.map(m=>`<div class="b" title="${MONTHS[m.month-1]}: ${rub(m.c)}">
-    <div class="bv">${m.c?Math.round(m.c/1000)+"т":""}</div>
-    <div class="bar ${m.c?"":"empty"}" style="height:${Math.round((m.c/max)*100)}%"></div></div>`).join("");
-  const mlabels=d.months12.map(m=>`<div>${MONTHS[m.month-1].slice(0,3)}</div>`).join("");
+  const nowM=+today().slice(5,7);
+  const bars=d.months12.map(m=>`<div class="hrow ${m.c?"":"zero"} ${m.month===nowM?"now":""}" title="${MONTHS[m.month-1]}: ${rub(m.c)}">
+    <span class="hl">${MONTHS[m.month-1].slice(0,3)}${m.month===nowM?" •":""}</span>
+    <span class="ht"><i style="width:${Math.round((m.c/max)*100)}%"></i></span>
+    <span class="hv">${m.c?rub(m.c):"—"}</span></div>`).join("");
   const maxS=d.rank.length?d.rank[0].sum:1;
   const ranks=d.rank.slice(0,8).map(r=>`<div class="rank"><div class="rl">${esc(r.name)} <span class="hint" style="margin:0">· ${fmtH(r.hours)}</span>
     <div class="rb"><i style="width:${Math.round((r.sum/maxS)*100)}%"></i></div></div><b>${rub(r.sum)}</b></div>`).join("");
@@ -1227,9 +1246,8 @@ function viewAnalytics(y){
     </div>
     <div class="chart">
       <div class="ct">Заработано по месяцам</div>
-      <div class="cs">Тысячи рублей. Самый сильный месяц — ${rub(max)}.</div>
-      <div class="bars">${bars}</div>
-      <div class="blabels">${mlabels}</div>
+      <div class="cs">Полоса заполнена относительно самого сильного месяца — ${rub(max)}.</div>
+      <div class="hbars">${bars}</div>
     </div>
     ${ins.map(t=>`<div class="insight">${t}</div>`).join("")}
     <h2 style="margin-top:14px">Кто сколько приносит</h2>
@@ -1356,7 +1374,7 @@ function viewSettings(){
         <div class="setrow"><div class="lbl"><b>Размер окна</b><span>${TG?"Развернуть мини-приложение на весь экран":"Доступно внутри Telegram"}</span></div>
           <div class="ctl"><button class="sm" type="button" id="uiFull" ${TG?"":"disabled"}>Во весь экран</button></div></div>
         <div class="setrow"><div class="lbl"><b>Название</b><span>Отображается в шапке</span></div>
-          <div class="ctl"><input type="text" id="uiTitle" value="${esc(ui.title||"")}" placeholder="Учёт занятий и оплат"></div></div>
+          <div class="ctl"><input type="text" id="uiTitle" value="${esc(ui.title||"")}" placeholder="Табель"></div></div>
       </div>
 
       <div class="sheet box" style="margin-top:14px">
@@ -1448,7 +1466,9 @@ function viewStudents(){
     if(b.balance<0){ cls="neg"; main="долг "+rub(-b.balance); }
     else if(b.balance>0){ cls="pos"; main="аванс "+rub(b.balance); if(st.price>0) extra="≈ "+fmtH(Math.floor(b.balance/st.price*2)/2); }
     const priceTxt = st.price>0 ? rub(st.price)+"/ч" : '<span class="warn">цена?</span>';
-    return `<div class="st">
+    const ready = st.price>0 && (st.oneoff || hasSched(st));
+    const scls = !ready ? "s-new" : b.balance<0 ? "s-debt" : b.balance>0 ? "s-pre" : "s-ok";
+    return `<div class="st ${scls}">
       <button class="name" type="button" data-open="${st.id}">${esc(fullName(st))}${st.group?` <span class="hint" style="margin:0">· ${esc(st.group)}</span>`:""}
         <small>${[st.grade?esc(st.grade)+" кл.":"",esc(st.subject||""),st.about?esc(st.about.slice(0,40)):""].filter(Boolean).join(" · ")}${(st.grade||st.subject)?"<br>":""}${schedText(st)} · ${priceTxt} · ${MODES[st.mode]||'<span class="warn">оплата?</span>'}</small></button>
       <div class="bal ${cls}">${main}<small>${extra||"&nbsp;"}</small></div>
@@ -1499,6 +1519,7 @@ document.addEventListener("click",e=>{
   else if(t.id==="wizImport") openImport();
   else if(a.free2) openFree();
   else if(a.gotoday){ tab="today"; render(); }
+  else if(a.openbrowser){ try{ TG && TG.openLink ? TG.openLink(location.href) : window.open(location.href,"_blank"); }catch(e){} }
 });
 
 /* ---------- когда и за какой месяц отчёт ---------- */
@@ -1827,7 +1848,7 @@ function tplText(id,st){
     case "holiday":
       return `${hi} Занятие${nm}`+(when?` ${when}`:"")+` не состоится, оплату за него не беру. Следующее — по обычному расписанию. Если удобно позаниматься в другой день, напишите.${sign}`;
     case "invite":
-      return `Привет! Веду учёт занятий и оплат в небольшом приложении: расписание, переносы, отмены, баланс по каждому ученику и готовый отчёт родителям в конце месяца. Работает прямо в Telegram, бесплатно: t.me/Tutor_tutorr_bot${sign}`;
+      return `Привет! Веду учёт занятий и оплат в «Табеле»: расписание, переносы, отмены, баланс по каждому ученику и готовый отчёт родителям в конце месяца. Работает прямо в Telegram, бесплатно: t.me/Tutor_tutorr_bot${sign}`;
     default: return "";
   }
 }
@@ -2171,7 +2192,7 @@ function openBackup(){
   if(local) $("bkDl").onclick=()=>{
     const blob=new Blob([data],{type:"application/json"});
     const a=document.createElement("a"); a.href=URL.createObjectURL(blob);
-    a.download="uchet-zanyatiy-kopiya-"+today()+".json"; document.body.appendChild(a); a.click();
+    a.download="tabel-kopiya-"+today()+".json"; document.body.appendChild(a); a.click();
     setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},1000);
     markBackup(); $("bkHint").textContent="Файл сохранён в «Загрузки».";
   };
@@ -2179,7 +2200,7 @@ function openBackup(){
   $("bkCsv").onclick=()=>{
     const rows=journalRows();
     $("bkOut").value=toTSV(rows);
-    saveXLSX("zhurnal-"+today()+".xlsx","Журнал",rows,{widths:[12,24,26,9,13,14,32],money:[4,5],ints:[]},$("bkHint"));
+    saveXLSX("tabel-zhurnal-"+today()+".xlsx","Журнал",rows,{widths:[12,24,26,9,13,14,32],money:[4,5],ints:[]},$("bkHint"));
     try{
       const blob=new Blob(["\ufeff"+csv],{type:"text/csv;charset=utf-8"});
       const a=document.createElement("a"); a.href=URL.createObjectURL(blob);
@@ -2270,6 +2291,10 @@ function xlsxBytes(sheetName, rows, opts){
 }
 
 function saveXLSX(name, sheet, rows, opts, hintEl){
+  if(TG){
+    if(hintEl) hintEl.innerHTML='Внутри Telegram файлы не скачиваются — это ограничение самого Telegram. Скопируйте таблицу кнопкой рядом, она вставится в Excel сразу по столбцам, либо <button class="sm" type="button" data-openbrowser="1">откройте приложение в браузере</button> — там файл скачается.';
+    return;
+  }
   try{
     const bytes=xlsxBytes(sheet, rows, opts);
     const blob=new Blob([bytes],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
@@ -2302,7 +2327,7 @@ function openRegistry(key){
   const rows=registryRows(key), csv=toCSV(rows), tsv=toTSV(rows);
   const held=rows.slice(1,-1).reduce((a,r)=>a+(+r[4]||0),0);
   openModal(`<div class="monthbar"><button class="sm" type="button" id="rgPrev" aria-label="Предыдущий месяц">‹</button><strong>Реестр: ${monthLabel(key)}</strong><button class="sm" type="button" id="rgNext" aria-label="Следующий месяц">›</button></div>
-    <div class="hint" style="margin-top:0">Готовый файл Excel: шапка, границы, формат рублей, фильтры и строка «Итого».</div>
+    <div class="hint" style="margin-top:0">${TG?"Копирование работает везде: таблица вставится в Excel сразу по столбцам. Скачивание файла доступно, если открыть приложение в браузере.":"Готовый файл Excel: шапка, границы, формат рублей, фильтры и строка «Итого»."}</div>
     ${held===0?`<div class="insight">В ${MONTHS_GEN[+key.slice(5)-1]} ещё нет отмеченных занятий, поэтому «проведено» нулевое. Колонка «К оплате» у тех, кто платит за месяц вперёд, считается по плану. Листайте стрелками, чтобы открыть прошлый месяц.</div>`:""}
     <textarea id="rgOut" style="min-height:160px" readonly>${esc(tsv)}</textarea>
     <div class="hint" id="rgHint">«Скопировать для Excel» — вставляется сразу по столбцам, ничего настраивать не нужно.</div>
@@ -2313,7 +2338,7 @@ function openRegistry(key){
   $("rgNext").onclick=()=>openRegistry(shiftMonth(key,1));
   $("rgClose").onclick=closeModal;
   $("rgCopy").onclick=()=>{ $("rgOut").value=tsv; copyText($("rgOut"),$("rgHint")); };
-  $("rgXl").onclick=()=>saveXLSX("reestr-"+key+".xlsx","Реестр "+monthLabel(key),rows,REG_OPTS,$("rgHint"));
+  $("rgXl").onclick=()=>saveXLSX("tabel-reestr-"+key+".xlsx","Реестр "+monthLabel(key),rows,REG_OPTS,$("rgHint"));
 }
 
 function journalRows(){
