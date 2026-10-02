@@ -522,7 +522,9 @@ applyUI();
 matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change",applyUI);
 
 /* ---------- Telegram ---------- */
-const TG = (typeof window!=="undefined" && window.Telegram && window.Telegram.WebApp) ? window.Telegram.WebApp : null;
+/* Скрипт Telegram создаёт WebApp и в обычном браузере. Внутри Telegram на самом деле — только если он передал initData. */
+const WA = (typeof window!=="undefined" && window.Telegram && window.Telegram.WebApp) ? window.Telegram.WebApp : null;
+const TG = (WA && WA.initData && WA.platform!=="unknown") ? WA : null;
 if(TG){ try{ TG.ready(); TG.expand(); window.__tgScheme=TG.colorScheme||window.__tgScheme; applyUI(); }catch(e){} }
 const CS_RAW = (TG && TG.CloudStorage && TG.CloudStorage.getKeys) ? TG.CloudStorage : null;
 const CS_OK = !!(CS_RAW && (!TG.isVersionAtLeast || TG.isVersionAtLeast("6.9")));

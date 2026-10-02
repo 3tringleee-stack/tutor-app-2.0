@@ -11,7 +11,7 @@ const CS={
   removeItems:(ks,cb)=>{ks.forEach(k=>delete cloud[k]);cb&&cb(null,true)},
 };
 let backShown=null, closeConf=null, backCb=null, actCb=null;
-global.window.Telegram={WebApp:{ready(){},expand(){},isVersionAtLeast:()=>true,CloudStorage:CS,
+global.window.Telegram={WebApp:{initData:"query_id=test&user=1",platform:"ios",ready(){},expand(){},isVersionAtLeast:()=>true,CloudStorage:CS,
   BackButton:{show(){backShown=true},hide(){backShown=false},onClick(f){backCb=f}},
   enableClosingConfirmation(){closeConf=true},disableClosingConfirmation(){closeConf=false},
   disableVerticalSwipes(){}, onEvent(n,f){ if(n==="activated") actCb=f; }, themeParams:{}, colorScheme:"light"}};

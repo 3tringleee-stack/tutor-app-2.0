@@ -36,6 +36,10 @@ const otherDays = (() => { const out = []; for (let i = 1; out.length < 4 && i <
   if (process.env.PW_CHROMIUM) launch.executablePath = process.env.PW_CHROMIUM;
   const browser = await chromium.launch(launch);
   const ctx = await browser.newContext({ viewport: { width: W, height: H }, acceptDownloads: true, locale: "ru-RU", timezoneId: Intl.DateTimeFormat().resolvedOptions().timeZone });
+  // Настоящий telegram-web-app.js в обычном браузере создаёт WebApp с пустым initData.
+  // Подменяем его таким же поведением, чтобы тест был одинаковым с интернетом и без.
+  await ctx.route("**/telegram-web-app.js", r => r.fulfill({ contentType: "application/javascript", body:
+    "window.Telegram={WebApp:{initData:'',initDataUnsafe:{},platform:'unknown',version:'6.0',colorScheme:'light',themeParams:{},isVersionAtLeast:function(v){return parseFloat(v)<=6},ready:function(){},expand:function(){},onEvent:function(){},openLink:function(u){},BackButton:{show:function(){},hide:function(){},onClick:function(){}},CloudStorage:{getItem:function(){},setItem:function(){},getItems:function(){},getKeys:function(){},removeItems:function(){}}}};" }));
   const page = await ctx.newPage();
   const errors = [];
   page.on("pageerror", e => errors.push(e.message));
