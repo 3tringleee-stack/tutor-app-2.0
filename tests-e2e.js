@@ -50,11 +50,13 @@ const otherDays = (() => { const out = []; for (let i = 1; out.length < 4 && i <
   const norm = t => String(t || "").replace(/[\u00a0\u202f]/g, " ").replace(/\s+/g, " ").trim();
   const text = async s => norm(await $(s).first().innerText());
   const view = () => text("#view");
-  const tab = async t => { await $(`[data-tab="${t}"]`).click(); await page.waitForTimeout(80); };
+  const tab = async t => { await $(`#tabs [data-tab="${t}"]`).click(); await page.waitForTimeout(80); };
   const modalOpen = async () => (await $("#back").getAttribute("class") || "").includes("open");
   const closeModal = async () => { if (await modalOpen()) { await page.keyboard.press("Escape"); await page.waitForTimeout(60); } };
   const noHScroll = async () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1);
   const data = () => page.evaluate(() => JSON.parse(localStorage.getItem("tutor-ledger-v1") || "{}"));
+  const obState = () => page.evaluate(() => { const ob = document.querySelector("#view .ob"); if (!ob) return null;
+    return [...ob.querySelectorAll("li")].map(li => li.classList.contains("done") ? "✓" : li.classList.contains("cur") ? "→" : "·").join(""); });
   const row = name => $("#view .prow").filter({ hasText: name }).first();
   const rowText = async name => norm(await row(name).innerText());
   const header = async id => { await page.waitForTimeout(900); return text(id); };
@@ -94,6 +96,7 @@ const otherDays = (() => { const out = []; for (let i = 1; out.length < 4 && i <
     ok("время и длительность 45 минут", v.includes("17:00–17:45") && v.includes("45 мин"), v);
     ok("крупные кнопки «Проведено» и «Не было»", await row("Вера").locator("[data-done]").count() === 1 && await row("Вера").locator("[data-miss]").count() === 1);
     const st = (await data()).students || [];
+    ok("подсказка «Как вести учёт»: шаг 1 сделан, следующий — «Проведено»", await obState() === "✓→··", await obState());
     ok("сохранено: цена, способ оплаты, родитель", st[0] && st[0].price === 1600 && st[0].mode === "after" && st[0].parent === "Ольга", JSON.stringify(st[0]));
 
     // ------------------------------------------------------------
@@ -101,6 +104,7 @@ const otherDays = (() => { const out = []; for (let i = 1; out.length < 4 && i <
     await row("Вера").locator("[data-done]").click(); await page.waitForTimeout(100);
     ok("занятие проведено, стоимость 1 200 ₽ (45 мин × 1 600)", (await rowText("Вера")).includes("1 200 ₽"), await rowText("Вера"));
     ok("в шапке долг 1 200 ₽", (await header("#sumDebt")).includes("1 200"), await text("#sumDebt"));
+    ok("подсказка: «Проведено» отмечено само", await obState() === "✓✓→·", await obState());
     await row("Вера").locator("[data-note]").click();
     await $("#eCom").fill("дроби, №5–12"); await $("#eSave").click(); await page.waitForTimeout(80);
     ok("заметка «что прошли» видна в строке", (await rowText("Вера")).includes("дроби, №5–12"));
@@ -151,6 +155,7 @@ const otherDays = (() => { const out = []; for (let i = 1; out.length < 4 && i <
     await $("#fAmt").fill("1200"); await $("#fSave").click(); await page.waitForTimeout(80);
     v = await view();
     const veraCard = (v.split("Вера Тест")[1] || "").split("Оплата")[0];
+    await tab("today"); ok("подсказка: оплата отмечена, остался «Отчёт»", await obState() === "✓✓✓→", await obState()); await tab("st"); v = await view();
     ok("после оплаты 1 200 ₽ Вера «в расчёте»", veraCard.includes("в расчёте"), veraCard);
     await tab("today");
     await $("[data-new]").first().click();
@@ -210,6 +215,7 @@ const otherDays = (() => { const out = []; for (let i = 1; out.length < 4 && i <
     ok("сводка за год посчитана", /20\d\d/.test(await view()) && (await view()).includes("Итого"));
 
     // ------------------------------------------------------------
+    await tab("today"); ok("после открытия «Отчёта» подсказка исчезла сама", await obState() === null, await obState());
     section("10. Карточка ученика, смена цены, архив");
     await tab("st");
     await $(`[data-open="${st[0].id}"]`).click(); await page.waitForTimeout(80);
@@ -271,22 +277,47 @@ const otherDays = (() => { const out = []; for (let i = 1; out.length < 4 && i <
     section("15. Сохранение после перезагрузки и вид на телефоне");
     await page.reload(); await page.waitForTimeout(300);
     ok("всё на месте после перезагрузки", (await view()).includes("Вера") && (await view()).includes("Катя"));
-    for (const t of ["today", "cal", "rep", "st"]) { await tab(t); ok(`вкладка «${await text(`[data-tab="${t}"]`)}» без горизонтальной прокрутки`, await noHScroll()); }
+    for (const t of ["today", "cal", "rep", "st"]) { await tab(t); ok(`вкладка «${await text(`#tabs [data-tab="${t}"]`)}» без горизонтальной прокрутки`, await noHScroll()); }
     await tab("today");
     await row("Катя").locator("[data-edit]").click().catch(() => {});
     if (await modalOpen()) {
-      const box = await $(".modal > .foot:last-child").boundingBox();
+      const box = await $(".modal > .foot:last-child button").last().boundingBox();
       ok("кнопки окна видны без прокрутки", box && box.y + box.height <= H + 1, JSON.stringify(box));
       await closeModal();
     }
+    // клавиатура на телефоне: видимая часть экрана уменьшается до 400px
+    const veraId = ((await data()).students || []).find(s => s.name === "Вера").id;
+    await tab("st"); await $(`[data-open="${veraId}"]`).click(); await $("#dEdit").click();
+    await page.setViewportSize({ width: W, height: 400 }); await page.waitForTimeout(150);
+    await $("#sNote").click(); await page.waitForTimeout(800);
+    const kb = await page.evaluate(() => { const m = document.getElementById("modal").getBoundingClientRect(), f = document.getElementById("sNote").getBoundingClientRect();
+      return { ok: f.top >= m.top && f.bottom <= m.bottom && m.bottom <= innerHeight + 1, f: [Math.round(f.top), Math.round(f.bottom)], m: [Math.round(m.top), Math.round(m.bottom)] }; });
+    ok("с открытой клавиатурой последнее поле формы доступно для ввода", kb.ok, JSON.stringify(kb));
+    await page.setViewportSize({ width: W, height: H }); await closeModal(); await tab("today");
     await page.screenshot({ path: path.join(__dirname, "proverka-ekran.png") });
+
+    // ------------------------------------------------------------
+    section("16. Подсказка снова и пробный режим ?new");
+    await $("#meBtn").click(); await $("#uiOb").click(); await page.waitForTimeout(80);
+    ok("«Показать снова» в настройках возвращает подсказку", await obState() !== null, await obState());
+    await $("[data-obhide]").click(); await page.waitForTimeout(60);
+    ok("«Скрыть» убирает её", await obState() === null);
+    const before = JSON.stringify(await data());
+    await page.goto(APP + "?new"); await page.waitForTimeout(300);
+    ok("?new открывает приложение как у новичка", (await view()).includes("Добавить первого ученика") && !(await view()).includes("Вера"), (await view()).slice(0, 120));
+    ok("и честно пишет, что это пробный режим", (await text("#syncState")).includes("Пробный режим"));
+    await wizard({ name: "Пробный", days: [WD], price: 1000, mode: "after" });
+    ok("в пробном режиме подсказка видна с первого ученика", await obState() === "✓→··", await obState());
+    await row("Пробный").locator("[data-done]").click(); await page.waitForTimeout(80);
+    await page.goto(APP); await page.waitForTimeout(300);
+    ok("после выхода из пробного режима настоящие данные не тронуты", JSON.stringify(await data()) === before && !(await view()).includes("Пробный"));
   } catch (e) {
     fail++; console.log("\n  ✗ Тест остановился: " + e.message.split("\n")[0]);
     await page.screenshot({ path: path.join(__dirname, "proverka-oshibka.png") }).catch(() => {});
     console.log("    Снимок экрана в момент ошибки: proverka-oshibka.png");
   }
 
-  section("16. Ошибки в работе страницы");
+  section("17. Ошибки в работе страницы");
   ok("ни одной ошибки JavaScript", errors.length === 0, errors.join(" | "));
 
   await browser.close();
