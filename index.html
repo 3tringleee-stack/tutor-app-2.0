@@ -106,6 +106,10 @@ h1{font-size:26px;line-height:1.15;margin:0;font-weight:800;letter-spacing:-.01e
 .prow{display:flex;align-items:center;justify-content:space-between;gap:var(--s3);padding:var(--s3) 0;border-top:1px solid var(--line);flex-wrap:wrap}
 .prow:first-of-type{border-top:0}
 .prow .who b{font-weight:700}
+details.arch summary{cursor:pointer;list-style:none;font-size:15px;padding:2px 0}
+details.arch summary::-webkit-details-marker{display:none}
+details.arch summary::before{content:"›";display:inline-block;margin-right:8px;color:var(--muted);transition:transform .15s}
+details.arch[open] summary::before{transform:rotate(90deg)}
 .sched .srows{display:grid;gap:8px;margin-top:10px}
 .srow{display:grid;grid-template-columns:minmax(0,1fr) 104px 112px 40px;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--bg)}
 .srow .sd{font-weight:600;font-size:14px}
@@ -910,7 +914,7 @@ function tween(el,to,fmt){
 function render(){
   document.querySelectorAll("#tabs button").forEach(b=>b.setAttribute("aria-selected",b.dataset.tab===tab));
   let debt=0,pre=0;
-  active().forEach(st=>{ const b=balanceOf(st).balance; if(b<0)debt+=-b; else pre+=b; });
+  students.forEach(st=>{ const b=balanceOf(st).balance; if(b<0)debt+=-b; else pre+=b; });
   tween($("sumDebt"),debt,rub); tween($("sumPre"),pre,rub);
   const pendC=allEvents().filter(e=>e.type==="cancel"&&e.status==="pending").length;
   $("sumPend").textContent=unmarkedPast().length+pendC;
@@ -1565,6 +1569,18 @@ function bindSettings(){
   };
   $("setBackup").onclick=()=>openBackup();
 }
+function viewArchive(){
+  const arch=students.filter(s=>s.archived).sort((a,b)=>(b.archivedAt||"").localeCompare(a.archivedAt||"")||fullName(a).localeCompare(fullName(b)));
+  if(!arch.length) return "";
+  const rows=arch.map(st=>{
+    const bal=Math.round(balanceOf(st).balance);
+    const money = bal<0 ? `<span class="neg">долг ${rub(-bal)}</span>` : bal>0 ? `<span class="pos">оплачено вперёд ${rub(bal)}</span>` : "в расчёте";
+    return `<div class="prow"><div class="who"><b>${esc(fullName(st))}</b><small>${st.archivedAt?"в архиве с "+fmtDate(st.archivedAt)+" · ":""}${money}</small></div>
+      <div class="btns"><button class="sm" type="button" data-open="${st.id}">История</button><button class="sm done" type="button" data-unarch="${st.id}">Вернуть</button></div></div>`;
+  }).join("");
+  return `<details class="sheet box arch" style="margin-top:14px"${ui.archOpen?" open":""}><summary><b>Архив</b> · ${arch.length} ${plural(arch.length,"ученик","ученика","учеников")}</summary>
+    <div class="hint">Ученики, с которыми вы больше не занимаетесь. Все занятия и оплаты сохранены${arch.some(s=>balanceOf(s).balance<0)?", долги по-прежнему учитываются в шапке":""}.</div>${rows}</details>`;
+}
 function viewStudents(){
   const rows=active().map(st=>{
     const b=balanceOf(st);
@@ -1592,13 +1608,14 @@ function viewStudents(){
         <button class="act pay" type="button" data-q="payment" data-sid="${st.id}">${ICO.plus}<span>Оплата</span></button>
       </div></div>`;
   }).join("");
-  return `<div class="sheet list">${rows}<button class="addst" type="button" id="addSt">Добавить ученика</button><button class="addst" type="button" id="addGroup">Добавить групповое занятие</button><button class="addst" type="button" id="freeBtn">Свободные окна для нового ученика</button></div>`;
+  return `<div class="sheet list">${rows}<button class="addst" type="button" id="addSt">Добавить ученика</button><button class="addst" type="button" id="addGroup">Добавить групповое занятие</button><button class="addst" type="button" id="freeBtn">Свободные окна для нового ученика</button></div>`+viewArchive();
 }
 
 document.addEventListener("click",e=>{
   const t=e.target.closest("button"); if(!t) return;
   const a=t.dataset;
   if(a.tab){ tab=a.tab; if(tab==="rep" && !ui.obRep && active().length){ ui.obRep=true; saveUI(); } render(); }
+  else if(a.unarch){ unarchive(a.unarch); }
   else if(a.obhide){ ui.obHide=true; ui.obForce=false; saveUI(); render(); }
   else if(a.done && slotRegistry[a.done]) markDone(slotRegistry[a.done]);
   else if(a.miss && slotRegistry[a.miss]) openMiss(slotRegistry[a.miss]);
@@ -1783,6 +1800,7 @@ if(TG){ try{
 document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible") refreshCloud(); });
 $("back").addEventListener("click",e=>{ if(e.target.id==="back") closeModal(); });
 document.addEventListener("keydown",e=>{ if(e.key==="Escape") closeModal(); });
+document.addEventListener("toggle",e=>{ const t=e.target; if(t && t.classList && t.classList.contains("arch")){ ui.archOpen=t.open; saveUI(); } },true);
 
 const WD_CAP=["Воскресенье","Понедельник","Вторник","Среда","Четверг","Пятница","Суббота"];
 function durOptions(v){ v=+v||1; const list=DUR_GRID.some(h=>sameH(h,v))?DUR_GRID:DUR_GRID.concat([v]).sort((a,b)=>a-b);
@@ -1825,14 +1843,25 @@ function applySched(st, rows, from){
   return {...st,sched,perWeek:rows.length||st.perWeek,oneoff:rows.length?false:st.oneoff};
 }
 const sameRows=(a,b)=>a.length===b.length && a.every((r,i)=>b[i] && r.w===b[i].w && (r.time||"")===(b[i].time||"") && sameH(+r.dur,+b[i].dur));
-function openSchedule(sid){
+function archiveSt(s){
+  const from=addDays(today(),1);
+  const sched=(s.sched||[]).filter(p=>p.from<from).concat(hasSched(s)?[{from,days:[],times:{},durs:{}}]:[]);
+  return {...s,archived:true,archivedAt:today(),sched};
+}
+function unarchive(sid){
+  students=students.map(s=>s.id===sid?{...s,archived:false,archivedAt:""}:s); saveStudents(); render();
+  const st=byId(sid);
+  if(st && !st.oneoff) openSchedule(sid, "Ученик вернулся. Выберите дни и время занятий — или нажмите «Отмена», если занимаетесь без расписания.");
+  else openDetail(sid);
+}
+function openSchedule(sid, note){
   const st=byId(sid); if(!st) return;
   detailSid=null;
   const ed_d=schedEditDate(st);
   const ed=schedEditor("schEd", schedRowsOf(st,ed_d), st.hours||1);
   const defFrom = ed_d>today() ? ed_d : hasSched(st) ? today() : today().slice(0,7)+"-01";
   openModal(`<h3>Расписание: ${esc(st.name)}</h3>
-    <div class="hint" style="margin-top:-6px">Постоянные занятия каждую неделю. Выберите дни, для каждого — время и длительность.</div>
+    <div class="hint" style="margin-top:-6px">${note?esc(note):"Постоянные занятия каждую неделю. Выберите дни, для каждого — время и длительность."}</div>
     ${ed.html()}
     ${ed_d>today()?`<div class="hint">Это расписание начнёт действовать ${fmtDate(ed_d)}. До этого — прежнее.</div>`:""}
     <label for="schFrom">С какого дня действует</label><input type="date" id="schFrom" value="${defFrom}">
@@ -2312,7 +2341,7 @@ function openStudentForm(sid){
     <div class="hint">Новая цена и новое расписание действуют с выбранного дня. Прошлые месяцы не пересчитываются.</div>
     <div class="hint" id="sErr"></div>
     <div class="foot">
-      ${sid?`<button class="secondary" type="button" id="sArch">Убрать в архив</button>`:""}
+      ${sid?`<button class="secondary" type="button" id="sArch">${st.archived?"Вернуть из архива":"Убрать в архив"}</button>`:""}
       <button class="secondary" type="button" id="sBack">Отмена</button>
       <button class="primary" type="button" id="sSave">Сохранить</button></div>`);
   sEd.bind();
@@ -2339,7 +2368,9 @@ function openStudentForm(sid){
     else if(sid) students=students.map(s=>s.pair===sid?{...s,pair:""}:s);
     saveStudents(); render(); sid?openDetail(sid):closeModal();
   };
-  if(sid) $("sArch").onclick=()=>{ students=students.map(s=>s.id===sid?{...s,archived:true}:s); saveStudents(); render(); closeModal(); };
+  if(sid && $("sArch")) $("sArch").onclick=()=>{
+    if(st.archived){ unarchive(sid); return; }
+    students=students.map(s=>s.id===sid?archiveSt(s):s); saveStudents(); render(); closeModal(); };
 }
 
 document.getElementById("meBtn").onclick=()=>openProfile();

@@ -230,6 +230,17 @@ const otherDays = (() => { const out = []; for (let i = 1; out.length < 4 && i <
     const roma = ((await data()).students || []).find(s => s.name === "Рома");
     await $(`[data-open="${roma.id}"]`).click(); await $("#dEdit").click(); await $("#sArch").click(); await page.waitForTimeout(80); await closeModal();
     ok("ученик в архиве пропал из списка", !(await view()).includes("Рома ШК"));
+    ok("внизу «Учеников» появился раздел «Архив · 1 ученик»", (await view()).includes("Архив · 1 ученик"), (await view()).slice(-200));
+    await $("details.arch summary").click(); await page.waitForTimeout(60);
+    ok("в архиве видно ученика и кнопку «Вернуть»", await $(`details.arch [data-unarch="${roma.id}"]`).count() === 1);
+    const ar = ((await data()).students || []).find(s => s.name === "Рома");
+    ok("при архивации расписание остановлено с завтрашнего дня, история цела", ar.archived && ar.sched[ar.sched.length - 1].days.length === 0 && ar.sched.length >= 2, JSON.stringify(ar.sched));
+    await $(`[data-unarch="${roma.id}"]`).click(); await page.waitForTimeout(80);
+    ok("«Вернуть» сразу предлагает задать расписание", await $("#schEd").count() === 1 && (await text("#modal")).includes("вернулся"));
+    await $(`#schEd [data-sw="${WD}"]`).click(); await $(`#schEd .srow[data-w="${WD}"] input[type=time]`).fill("18:30");
+    await $("#schFrom").fill(addDays(TODAY, 1)); await $("#schSave").click(); await page.waitForTimeout(80); await closeModal();
+    ok("ученик снова в списке, архив пуст", (await view()).includes("Рома ШК") && !(await view()).includes("Архив ·"));
+    await $(`[data-open="${roma.id}"]`).click(); await $("#dEdit").click(); await $("#sArch").click(); await page.waitForTimeout(80); await closeModal();
 
     // ------------------------------------------------------------
     section("10б. Расписание: время по дням, постоянные занятия");
