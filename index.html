@@ -256,10 +256,17 @@ textarea{min-height:60px;resize:vertical}
 .kpi div{border:1px solid var(--line);border-radius:11px;padding:9px 11px}
 .kpi b{display:block;font-size:18px}
 .kpi span{font-size:11.5px;color:var(--muted)}
-.bars{display:flex;align-items:flex-end;gap:5px;height:110px;margin:10px 0 4px}
-.bars .b{flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:100%;gap:4px}
-.bars .bar{background:var(--blue);border-radius:5px 5px 0 0;min-height:2px;transition:height .45s cubic-bezier(.22,.7,.3,1)}
-.bars .bl{font-size:10.5px;color:var(--muted);text-align:center}
+.chart{margin:12px 0 2px}
+.chart .ct{font-size:13.5px;font-weight:700;margin-bottom:2px}
+.chart .cs{font-size:12px;color:var(--muted);margin-bottom:8px}
+.bars{display:flex;align-items:flex-end;gap:8px;height:104px;border-bottom:1px solid var(--line);padding-bottom:2px}
+.bars .b{flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:100%;gap:3px;min-width:0}
+.bars .bv{font-size:11px;color:var(--muted);text-align:center;white-space:nowrap}
+.bars .bar{background:var(--blue);border-radius:4px 4px 0 0;min-height:3px;transition:height .45s cubic-bezier(.22,.7,.3,1)}
+.bars .bar.empty{background:var(--grid)}
+.bars .bar.now{outline:2px solid var(--blue);outline-offset:1px}
+.blabels{display:flex;gap:8px;margin-top:5px}
+.blabels div{flex:1;text-align:center;font-size:11px;color:var(--muted);min-width:0;line-height:1.25}
 .rank{display:flex;justify-content:space-between;gap:8px;padding:7px 0;border-top:1px solid var(--line);font-size:14px}
 .rank:first-of-type{border-top:0}
 .rank .rl{flex:1}
@@ -1006,7 +1013,8 @@ function monthPulse(key){
   const offset=(parse(dates[0]).getDay()+6)%7;
   dates.forEach((d,i)=>{
     const wi=Math.floor((i+offset)/7);
-    if(!r.weeks[wi]) r.weeks[wi]={h:0,label:""};
+    if(!r.weeks[wi]) r.weeks[wi]={h:0,label:"",days:[]};
+    r.weeks[wi].days.push(d);
     slotsOn(d).forEach(sl=>{
       const stt=slotStatus(sl);
       if(stt==="lesson"){ r.heldN++; r.heldH+=hoursOf(sl.ev,sl.st); r.earned+=costOf(sl.ev,sl.st); r.weeks[wi].h+=hoursOf(sl.ev,sl.st); }
@@ -1019,14 +1027,19 @@ function monthPulse(key){
     });
     (months[key]||[]).filter(e=>e.date===d&&e.type==="payment").forEach(e=>r.paid+=+e.amount||0);
   });
-  r.weeks.forEach((w,i)=>{ w.label=(i+1)+"\u2009нед"; });
+  r.weeks.forEach(w=>{ if(w.days&&w.days.length){ const a=w.days[0], b=w.days[w.days.length-1];
+    w.label = (+a.slice(8))+"–"+(+b.slice(8)); } else w.label="—"; });
   return r;
 }
 function viewPulse(key){
   const r=monthPulse(key);
   if(!r.heldN && !r.leftN && !r.unmarked && !r.paid) return "";
   const maxW=Math.max(1,...r.weeks.map(w=>w.h));
-  const bars=r.weeks.map(w=>`<div class="b" title="${fmtH(w.h)}"><div class="bar" style="height:${Math.round((w.h/maxW)*100)}%;${w.h?"":"background:var(--grid)"}"></div><div class="bl">${w.label}</div></div>`).join("");
+  const nowWeek=r.weeks.findIndex(w=>w.days && w.days.includes(today()));
+  const bars=r.weeks.map((w,i)=>`<div class="b" title="${w.label} ${MONTHS[+key.slice(5)-1].slice(0,3)}: ${fmtH(w.h)}">
+      <div class="bv">${w.h?fmtH(w.h):""}</div>
+      <div class="bar ${w.h?"":"empty"} ${i===nowWeek?"now":""}" style="height:${Math.round((w.h/maxW)*100)}%"></div></div>`).join("");
+  const labels=r.weeks.map(w=>`<div>${w.label}</div>`).join("");
   const free=freeSlots()[0];
   return `<div class="sheet box"><h2>${monthLabel(key)} в цифрах</h2>
     <div class="kpi">
@@ -1035,8 +1048,13 @@ function viewPulse(key){
       <div><b>${rub(r.earned)}</b><span>заработано${r.leftMoney?`, ждёт ${rub(r.leftMoney)}`:""}</span></div>
       <div><b>${rub(r.paid)}</b><span>получено оплат</span></div>
     </div>
-    <div class="bars">${bars}</div>
-    <div class="hint">Загрузка по неделям, часы</div>
+    <div class="chart">
+      <div class="ct">Часы занятий по неделям</div>
+      <div class="cs">Проведённые и запланированные часы, ${MONTHS[+key.slice(5)-1]}. Максимум за неделю — ${fmtH(maxW)}.</div>
+      <div class="bars">${bars}</div>
+      <div class="blabels">${labels}</div>
+      <div class="cs" style="margin:6px 0 0">числа месяца${nowWeek>=0?" · текущая неделя обведена":""}</div>
+    </div>
     ${r.unmarked?`<div class="insight">Не отмечено занятий: ${r.unmarked}. <button class="sm done" type="button" data-gotoday="1" style="margin-left:6px">Отметить</button></div>`:""}
     ${(r.movedN||r.cancN)?`<div class="hint">Переносов: ${r.movedN} · отмен: ${r.cancN}</div>`:""}
     ${free?`<div class="hint">Ближайшее свободное окно: ${WD_LONG[parse(free.d).getDay()]} ${fmtDate(free.d)}, ${fromMinutes(free.slots[0])}. <button class="sm" type="button" data-free2="1">Все окна</button></div>`:""}
@@ -1188,8 +1206,9 @@ function viewAnalytics(y){
   if(!d.activeM.length) return `<div class="sheet box"><h2>Аналитика ${y}</h2><div class="empty">Пока нет данных за этот год. Отметьте занятия — появится статистика.</div></div>`;
   const max=Math.max(...d.months12.map(m=>m.c),1);
   const bars=d.months12.map(m=>`<div class="b" title="${MONTHS[m.month-1]}: ${rub(m.c)}">
-    <div class="bar" style="height:${Math.round((m.c/max)*100)}%;${m.c?"":"background:var(--grid)"}"></div>
-    <div class="bl">${MONTHS[m.month-1].slice(0,3)}</div></div>`).join("");
+    <div class="bv">${m.c?Math.round(m.c/1000)+"т":""}</div>
+    <div class="bar ${m.c?"":"empty"}" style="height:${Math.round((m.c/max)*100)}%"></div></div>`).join("");
+  const mlabels=d.months12.map(m=>`<div>${MONTHS[m.month-1].slice(0,3)}</div>`).join("");
   const maxS=d.rank.length?d.rank[0].sum:1;
   const ranks=d.rank.slice(0,8).map(r=>`<div class="rank"><div class="rl">${esc(r.name)} <span class="hint" style="margin:0">· ${fmtH(r.hours)}</span>
     <div class="rb"><i style="width:${Math.round((r.sum/maxS)*100)}%"></i></div></div><b>${rub(r.sum)}</b></div>`).join("");
@@ -1206,8 +1225,12 @@ function viewAnalytics(y){
       <div><b>${fmtH(d.totH)}</b><span>часов проведено</span></div>
       <div><b>${rub(perH)}</b><span>средняя ставка в час</span></div>
     </div>
-    <div class="bars">${bars}</div>
-    <div class="hint">Заработано по месяцам</div>
+    <div class="chart">
+      <div class="ct">Заработано по месяцам</div>
+      <div class="cs">Тысячи рублей. Самый сильный месяц — ${rub(max)}.</div>
+      <div class="bars">${bars}</div>
+      <div class="blabels">${mlabels}</div>
+    </div>
     ${ins.map(t=>`<div class="insight">${t}</div>`).join("")}
     <h2 style="margin-top:14px">Кто сколько приносит</h2>
     ${ranks||'<div class="empty">Нет данных.</div>'}
@@ -2258,31 +2281,36 @@ function saveXLSX(name, sheet, rows, opts, hintEl){
 }
 
 function registryRows(key){
-  const rows=[["Ученик","Группа","Договор","Занятий","Часов","Начислено, ₽","Получено, ₽","Долг / аванс, ₽","Способ оплаты","Статус"]];
-  const tot=[0,0,0,0,0];
+  const rows=[["Ученик","Группа","Договор","Занятий по плану","Проведено занятий","Проведено часов","К оплате, ₽","Получено, ₽","Осталось оплатить, ₽","Способ оплаты","Статус"]];
+  const tot=[0,0,0,0,0,0];
   payCheck(key).forEach(r=>{
     const m=monthStats(r.st,key);
-    tot[0]+=m.held; tot[1]+=m.heldH; tot[2]+=r.need; tot[3]+=r.got; tot[4]+=r.bal;
+    const left=Math.max(0,r.need-r.got);
+    tot[0]+=m.plan; tot[1]+=m.held; tot[2]+=m.heldH; tot[3]+=r.need; tot[4]+=r.got; tot[5]+=left;
     rows.push([fullName(r.st),r.st.group||"",[r.st.contractNo||"",r.st.contractDate||""].filter(Boolean).join(" от "),
-      m.held,+m.heldH.toFixed(2),Math.round(r.need),Math.round(r.got),Math.round(r.bal),
+      m.plan,m.held,+m.heldH.toFixed(2),Math.round(r.need),Math.round(r.got),Math.round(left),
       PAYM[r.st.payMethod]||"", {none:"не оплачено",part:"частично",ok:"оплачено",empty:"занятий нет"}[r.status]]);
   });
-  rows.push(["ИТОГО","","",tot[0],+tot[1].toFixed(2),Math.round(tot[2]),Math.round(tot[3]),Math.round(tot[4]),"",""]);
+  rows.push(["ИТОГО","","",tot[0],tot[1],+tot[2].toFixed(2),Math.round(tot[3]),Math.round(tot[4]),Math.round(tot[5]),"",""]);
   return rows;
 }
-const REG_OPTS={widths:[24,16,18,10,9,15,15,16,16,14],money:[5,6,7],ints:[3]};
+const REG_OPTS={widths:[24,16,18,14,15,15,15,15,16,16,14],money:[6,7,8],ints:[3,4]};
 const toCSV = rows => rows.map(r=>r.map(v=>'"'+String(v??"").replace(/"/g,'""')+'"').join(";")).join("\r\n");
 const toTSV = rows => rows.map(r=>r.map(v=>String(v??"").replace(/[\t\r\n]+/g," ")).join("\t")).join("\n");
 function openRegistry(key){
   detailSid=null;
   const rows=registryRows(key), csv=toCSV(rows), tsv=toTSV(rows);
-  openModal(`<h3>Реестр за ${monthLabel(key)}</h3>
-    <div class="hint" style="margin-top:-6px">Готовый файл Excel: шапка, границы, формат рублей, фильтры и строка «Итого».</div>
+  const held=rows.slice(1,-1).reduce((a,r)=>a+(+r[4]||0),0);
+  openModal(`<div class="monthbar"><button class="sm" type="button" id="rgPrev" aria-label="Предыдущий месяц">‹</button><strong>Реестр: ${monthLabel(key)}</strong><button class="sm" type="button" id="rgNext" aria-label="Следующий месяц">›</button></div>
+    <div class="hint" style="margin-top:0">Готовый файл Excel: шапка, границы, формат рублей, фильтры и строка «Итого».</div>
+    ${held===0?`<div class="insight">В ${MONTHS_GEN[+key.slice(5)-1]} ещё нет отмеченных занятий, поэтому «проведено» нулевое. Колонка «К оплате» у тех, кто платит за месяц вперёд, считается по плану. Листайте стрелками, чтобы открыть прошлый месяц.</div>`:""}
     <textarea id="rgOut" style="min-height:160px" readonly>${esc(tsv)}</textarea>
     <div class="hint" id="rgHint">«Скопировать для Excel» — вставляется сразу по столбцам, ничего настраивать не нужно.</div>
     <div class="foot"><button class="secondary" type="button" id="rgClose">Закрыть</button>
       <button class="secondary" type="button" id="rgXl">Скачать Excel</button>
       <button class="primary" type="button" id="rgCopy">Скопировать для Excel</button></div>`);
+  $("rgPrev").onclick=()=>openRegistry(shiftMonth(key,-1));
+  $("rgNext").onclick=()=>openRegistry(shiftMonth(key,1));
   $("rgClose").onclick=closeModal;
   $("rgCopy").onclick=()=>{ $("rgOut").value=tsv; copyText($("rgOut"),$("rgHint")); };
   $("rgXl").onclick=()=>saveXLSX("reestr-"+key+".xlsx","Реестр "+monthLabel(key),rows,REG_OPTS,$("rgHint"));
