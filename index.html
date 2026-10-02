@@ -1258,8 +1258,11 @@ function payCheck(key){
     const m=monthStats(st,key);
     const need = st.mode==="month" ? Math.max(m.cost, planOf(st,key).cost) : m.cost;
     const got=m.paid, bal=balanceOf(st,lastDay(key)).balance;
-    let status = need<=0 && got<=0 ? "empty" : (got<=0 ? "none" : (got+1e-6 < need || bal<0 ? "part" : "ok"));
-    return {st,need,got,bal,status};
+    /* что было на начало месяца: аванс (+) или долг (−) с прошлых месяцев */
+    const carry=Math.round(balanceOf(st,addDays(key+"-01",-1)).balance);
+    const left=Math.max(0,Math.round(need-carry-got));
+    const status = need<=0 && got<=0 && carry>=0 ? "empty" : left<=0 ? "ok" : (got>0||carry>0) ? "part" : "none";
+    return {st,need,got,bal,carry,left,status};
   }).sort((a,b)=>{
     const ord={none:0,part:1,ok:2,empty:3};
     return ord[a.status]-ord[b.status] || fullName(a.st).localeCompare(fullName(b.st));
@@ -1270,7 +1273,7 @@ function viewPayCheck(key){
   if(!rows.length) return "";
   const LBL={none:'<span class="st-status cancel">не оплатил</span>',part:'<span class="st-status open">частично</span>',ok:'<span class="st-status done">оплачено</span>',empty:'<span class="st-status skip">занятий нет</span>'};
   const unpaid=rows.filter(r=>r.status==="none"||r.status==="part");
-  const debt=unpaid.reduce((a,r)=>a+Math.max(0,r.need-r.got),0);
+  const debt=unpaid.reduce((a,r)=>a+r.left,0);
   return `<div class="sheet box"><h2>Сверка оплат · ${monthLabel(key)}</h2>
     <div class="hint" style="margin-top:0">Откройте выписку из банка и внесите каждую оплату кнопкой «+ Оплата». Строка станет «оплачено», когда сумма сойдётся.</div>
     <div class="kpi">
@@ -1280,7 +1283,7 @@ function viewPayCheck(key){
       <div><b>${rub(rows.reduce((a,r)=>a+r.got,0))}</b><span>получено за месяц</span></div>
     </div>
     ${rows.map(r=>`<div class="prow"><div class="who"><b>${esc(fullName(r.st))}</b>
-      <small>${r.st.group?esc(r.st.group)+" · ":""}${r.st.payMethod?PAYM[r.st.payMethod]+" · ":""}${r.st.mode==="month"?"к оплате":"начислено"} ${rub(r.need)} · получено ${rub(r.got)}${r.need-r.got>0?` · осталось ${rub(r.need-r.got)}`:""}</small></div>
+      <small>${r.st.group?esc(r.st.group)+" · ":""}${r.st.payMethod?PAYM[r.st.payMethod]+" · ":""}${r.st.mode==="month"?"за месяц":"начислено"} ${rub(r.need)}${r.carry>0?` · было оплачено вперёд ${rub(r.carry)}`:r.carry<0?` · долг с прошлых месяцев ${rub(-r.carry)}`:""} · получено ${rub(r.got)}${r.left>0?` · <b class="neg">осталось ${rub(r.left)}</b>`:""}</small></div>
       <div class="btns">${LBL[r.status]}
         <button class="sm done" type="button" data-q="payment" data-sid="${r.st.id}">+ Оплата</button>
         ${(r.status==="none"||r.status==="part")?`<button class="sm" type="button" data-tpl="${r.st.id}">Напомнить</button>`:""}
@@ -2517,20 +2520,20 @@ function saveXLSX(name, sheet, rows, opts, hintEl){
 }
 
 function registryRows(key){
-  const rows=[["Ученик","Группа","Договор","Занятий по плану","Проведено занятий","Проведено часов","К оплате, ₽","Получено, ₽","Осталось оплатить, ₽","Способ оплаты","Статус"]];
-  const tot=[0,0,0,0,0,0];
+  const rows=[["Ученик","Группа","Договор","Занятий по плану","Проведено занятий","Проведено часов","К оплате, ₽","С прошлого месяца, ₽","Получено, ₽","Осталось оплатить, ₽","Способ оплаты","Статус"]];
+  const tot=[0,0,0,0,0,0,0];
   payCheck(key).forEach(r=>{
     const m=monthStats(r.st,key);
-    const left=Math.max(0,r.need-r.got);
-    tot[0]+=m.plan; tot[1]+=m.held; tot[2]+=m.heldH; tot[3]+=r.need; tot[4]+=r.got; tot[5]+=left;
+    const left=r.left;
+    tot[0]+=m.plan; tot[1]+=m.held; tot[2]+=m.heldH; tot[3]+=r.need; tot[4]+=r.got; tot[5]+=left; tot[6]+=r.carry;
     rows.push([fullName(r.st),r.st.group||"",[r.st.contractNo||"",r.st.contractDate||""].filter(Boolean).join(" от "),
-      m.plan,m.held,+m.heldH.toFixed(2),Math.round(r.need),Math.round(r.got),Math.round(left),
+      m.plan,m.held,+m.heldH.toFixed(2),Math.round(r.need),r.carry,Math.round(r.got),Math.round(left),
       PAYM[r.st.payMethod]||"", {none:"не оплачено",part:"частично",ok:"оплачено",empty:"занятий нет"}[r.status]]);
   });
-  rows.push(["ИТОГО","","",tot[0],tot[1],+tot[2].toFixed(2),Math.round(tot[3]),Math.round(tot[4]),Math.round(tot[5]),"",""]);
+  rows.push(["ИТОГО","","",tot[0],tot[1],+tot[2].toFixed(2),Math.round(tot[3]),Math.round(tot[6]),Math.round(tot[4]),Math.round(tot[5]),"",""]);
   return rows;
 }
-const REG_OPTS={widths:[24,16,18,14,15,15,15,15,16,16,14],money:[6,7,8],ints:[3,4]};
+const REG_OPTS={widths:[24,16,18,14,15,15,15,18,15,16,16,14],money:[6,7,8,9],ints:[3,4]};
 const toCSV = rows => rows.map(r=>r.map(v=>'"'+String(v??"").replace(/"/g,'""')+'"').join(";")).join("\r\n");
 const toTSV = rows => rows.map(r=>r.map(v=>String(v??"").replace(/[\t\r\n]+/g," ")).join("\t")).join("\n");
 function openRegistry(key){

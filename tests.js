@@ -156,5 +156,28 @@ console.log("\n12. Занятие 45 минут и отчёт родителю �
   eq("в отчёте 1 ч 15 мин, по порядку дат", txt.indexOf("• 02.10, 1 ч 15 мин") < txt.indexOf("• 06.10"), true);
 }
 
+console.log("\n13. Сверка учитывает аванс и долг с прошлых месяцев");
+{
+  T.set([
+    S({id:"k",name:"Катя",price:1200,mode:"after",sched:sch([5],"16:00",1)}),
+    S({id:"a",name:"Саша",price:1000,mode:"month",sched:sch([2],"17:00",1.5,"2026-10-01")}),
+    S({id:"v",name:"Вера",price:1500,mode:"after",sched:sch([4],"17:00",1)}),
+  ],{
+    "2026-09":[{id:"kp",sid:"k",type:"payment",date:"2026-09-10",amount:5000},
+               {id:"ap",sid:"a",type:"payment",date:"2026-09-28",amount:6000},
+               {id:"vl",sid:"v",type:"lesson",planned:true,date:"2026-09-24",time:"17:00",hours:1,price:1500}],
+    "2026-10":[{id:"kl",sid:"k",type:"lesson",planned:true,date:"2026-10-02",time:"16:00",hours:1,price:1200},
+               {id:"vl2",sid:"v",type:"lesson",planned:true,date:"2026-10-01",time:"17:00",hours:1,price:1500}]});
+  const pc=Object.fromEntries(T.payCheck("2026-10").map(r=>[r.st.name,r]));
+  eq("Катя заплатила 5000 в сентябре — в октябре не должница", pc["Катя"].status, "ok");
+  eq("Саша оплатил октябрь заранее (6000 в сентябре) — не должник", pc["Саша"].status, "ok");
+  eq("Вера должна и за сентябрь, и за октябрь", [pc["Вера"].status, pc["Вера"].left], ["none", 3000]);
+  eq("в сверке ровно одна должница", T.payCheck("2026-10").filter(r=>r.status==="none"||r.status==="part").length, 1);
+  const rows=T.registryRows("2026-10"), h=rows[0];
+  const kat=rows.find(r=>r[0]==="Катя");
+  eq("реестр: колонка «С прошлого месяца» = аванс Кати 5000", kat[h.indexOf("С прошлого месяца, ₽")], 5000);
+  eq("реестр: Кате доплачивать нечего", kat[h.indexOf("Осталось оплатить, ₽")], 0);
+}
+
 console.log("\n" + (fail? `ПРОВАЛЕНО: ${fail}, пройдено: ${pass}` : `Все проверки пройдены: ${pass}`));
 process.exit(fail?1:0);
