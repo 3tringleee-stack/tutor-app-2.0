@@ -106,6 +106,12 @@ h1{font-size:26px;line-height:1.15;margin:0;font-weight:800;letter-spacing:-.01e
 .prow{display:flex;align-items:center;justify-content:space-between;gap:var(--s3);padding:var(--s3) 0;border-top:1px solid var(--line);flex-wrap:wrap}
 .prow:first-of-type{border-top:0}
 .prow .who b{font-weight:700}
+.sched .srows{display:grid;gap:8px;margin-top:10px}
+.srow{display:grid;grid-template-columns:minmax(0,1fr) 104px 112px 40px;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--bg)}
+.srow .sd{font-weight:600;font-size:14px}
+.srow input,.srow select{margin:0;padding:8px}
+.srow .undo{width:40px;height:40px;display:inline-flex;align-items:center;justify-content:center}
+@media (max-width:400px){.srow{grid-template-columns:1fr 1fr 40px}.srow .sd{grid-column:1/-1}}
 .ob .ob-h{display:flex;align-items:baseline;justify-content:space-between;gap:var(--s2)}
 .ob ol{list-style:none;margin:var(--s2) 0;padding:0;display:grid;gap:6px}
 .ob li{display:flex;align-items:center;gap:var(--s3);font-size:13.5px;line-height:1.3;color:var(--muted)}
@@ -1770,6 +1776,70 @@ document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==
 $("back").addEventListener("click",e=>{ if(e.target.id==="back") closeModal(); });
 document.addEventListener("keydown",e=>{ if(e.key==="Escape") closeModal(); });
 
+const WD_CAP=["Воскресенье","Понедельник","Вторник","Среда","Четверг","Пятница","Суббота"];
+function durOptions(v){ v=+v||1; const list=DUR_GRID.some(h=>sameH(h,v))?DUR_GRID:DUR_GRID.concat([v]).sort((a,b)=>a-b);
+  return list.map(h=>`<option value="${h}"${sameH(h,v)?" selected":""}>${fmtH(h)}</option>`).join(""); }
+function schedRowsOf(st,d){
+  const p=periodFor(st,d||today()); if(!p) return [];
+  return WD_ORDER.filter(w=>p.days.includes(w)).map(w=>({w,time:(p.times||{})[w]||"",dur:(p.durs||{})[w]||st.hours||1}));
+}
+/* Редактор: кнопки дней сверху, под ними по строке на каждый выбранный день */
+function schedEditor(id, rows, defDur){
+  const st={rows:rows.map(r=>({...r}))};
+  const rowHTML=r=>`<div class="srow" data-w="${r.w}"><span class="sd">${WD_CAP[r.w]}</span>
+      <input type="time" step="300" value="${r.time}" data-k="time" aria-label="Время, ${WD_LONG[r.w]}">
+      <select data-k="dur" aria-label="Длительность, ${WD_LONG[r.w]}">${durOptions(r.dur)}</select>
+      <button class="undo" type="button" data-sdel="${r.w}" title="Убрать этот день" aria-label="Убрать ${WD_LONG[r.w]}">${ICO.cross}</button></div>`;
+  const html=()=>`<div class="sched" id="${id}">
+      <div class="wdpick">${WD_ORDER.map(w=>`<button type="button" data-sw="${w}" aria-pressed="${st.rows.some(r=>r.w===w)}">${WD[w]}</button>`).join("")}</div>
+      <div class="srows">${st.rows.length?WD_ORDER.map(w=>st.rows.find(r=>r.w===w)).filter(Boolean).map(rowHTML).join(""):'<div class="hint" style="margin:6px 0 0">Нажмите на день недели — появится строка, где выбрать время и длительность.</div>'}</div></div>`;
+  const read=()=>{ const el=$(id); if(!el) return; el.querySelectorAll(".srow").forEach(rw=>{ const r=st.rows.find(x=>x.w===+rw.dataset.w); if(!r) return;
+      r.time=rw.querySelector('[data-k="time"]').value; r.dur=num(rw.querySelector('[data-k="dur"]').value)||r.dur; }); };
+  const redraw=()=>{ const el=$(id); if(el){ el.outerHTML=html(); bind(); } };
+  const bind=()=>{ const el=$(id); if(!el) return;
+    el.onclick=e=>{ const b=e.target.closest("button"); if(!b) return; read();
+      if(b.dataset.sw!==undefined){ const w=+b.dataset.sw;
+        if(st.rows.some(r=>r.w===w)) st.rows=st.rows.filter(r=>r.w!==w);
+        else { const last=st.rows[st.rows.length-1]; st.rows.push({w,time:last?last.time:"17:00",dur:last?last.dur:(defDur||1)}); }
+        redraw(); const nr=$(id).querySelector(`.srow[data-w="${w}"] input`); if(nr && !(typeof matchMedia!=="undefined" && matchMedia("(pointer:coarse)").matches)) nr.focus(); }
+      else if(b.dataset.sdel!==undefined){ st.rows=st.rows.filter(r=>r.w!==+b.dataset.sdel); redraw(); }
+    };
+    el.oninput=read; el.onchange=read; };
+  return { html, bind, rows:()=>{ read(); return WD_ORDER.map(w=>st.rows.find(r=>r.w===w)).filter(Boolean); } };
+}
+/* Какое расписание показывать в редакторе: будущее, если уже запланировано, иначе текущее */
+function schedEditDate(st){ const fut=(st.sched||[]).map(p=>p.from).filter(f=>f>today()).sort(); return fut.length?fut[fut.length-1]:today(); }
+/* Записать новое расписание с даты from; прошлые месяцы не трогаем */
+function applySched(st, rows, from){
+  const times={}, durs={};
+  rows.forEach(r=>{ if(r.time) times[r.w]=r.time; durs[r.w]=r.dur; });
+  const sched=(st.sched||[]).filter(p=>p.from<from).concat([{from,days:rows.map(r=>r.w).sort(),times,durs}]);
+  return {...st,sched,perWeek:rows.length||st.perWeek,oneoff:rows.length?false:st.oneoff};
+}
+const sameRows=(a,b)=>a.length===b.length && a.every((r,i)=>b[i] && r.w===b[i].w && (r.time||"")===(b[i].time||"") && sameH(+r.dur,+b[i].dur));
+function openSchedule(sid){
+  const st=byId(sid); if(!st) return;
+  detailSid=null;
+  const ed_d=schedEditDate(st);
+  const ed=schedEditor("schEd", schedRowsOf(st,ed_d), st.hours||1);
+  const defFrom = ed_d>today() ? ed_d : hasSched(st) ? today() : today().slice(0,7)+"-01";
+  openModal(`<h3>Расписание: ${esc(st.name)}</h3>
+    <div class="hint" style="margin-top:-6px">Постоянные занятия каждую неделю. Выберите дни, для каждого — время и длительность.</div>
+    ${ed.html()}
+    ${ed_d>today()?`<div class="hint">Это расписание начнёт действовать ${fmtDate(ed_d)}. До этого — прежнее.</div>`:""}
+    <label for="schFrom">С какого дня действует</label><input type="date" id="schFrom" value="${defFrom}">
+    <div class="hint">Занятия до этой даты останутся как были — прошлые месяцы и оплаты не пересчитаются.</div>
+    <div class="hint" id="schErr"></div>
+    <div class="foot"><button class="secondary" type="button" id="schBack">Отмена</button><button class="primary" type="button" id="schSave">Сохранить</button></div>`);
+  ed.bind();
+  $("schBack").onclick=()=>openDetail(sid);
+  $("schSave").onclick=()=>{
+    const rows=ed.rows(), from=$("schFrom").value||today();
+    if(rows.some(r=>!r.time)){ $("schErr").innerHTML='<span class="warn">Укажите время для каждого дня.</span>'; return; }
+    students=students.map(x=>x.id===sid?applySched(x,rows,from):x);
+    saveStudents(); render(); openDetail(sid);
+  };
+}
 const DUR_GRID=[]; for(let m=15;m<=360;m+=15) DUR_GRID.push(m/60);
 const sameH=(a,b)=>Math.abs(a-b)<1e-6;
 function hoursInput(id,val){
@@ -2067,6 +2137,7 @@ function openEventForm(sid,type,date){
       <div class="lf"><label for="fTime">Время</label><input type="time" id="fTime" step="300"></div>
       <div class="lf"><label for="fH">Длительность</label>${hoursInput("fH",(s0&&s0.hours)||1)}</div>
     </div>
+    <div class="lf"><label><input type="checkbox" id="fRepeat" style="width:auto;margin-right:6px"><span id="fRepeatTxt">Каждую неделю — добавить в расписание</span></label></div>
     <div class="lf"><label><input type="checkbox" id="fTrial" style="width:auto;margin-right:6px">Пробное занятие — бесплатно</label></div>
     <div id="amtWrap" hidden><label for="fAmt">Сумма, ₽</label><input type="number" inputmode="numeric" min="0" id="fAmt">
       <div class="chips" id="fChips"></div></div>
@@ -2079,6 +2150,7 @@ function openEventForm(sid,type,date){
     if(!s){ $("fHint").textContent=""; return; }
     if(cur==="lesson"){
       const tr=$("fTrial")&&$("fTrial").checked;
+      if($("fRepeat")&&$("fRepeat").checked){ const dd=$("fDate").value; $("fHint").textContent=`С ${dd?fmtDate(dd):"этого дня"} занятие будет стоять в расписании каждую неделю. Отмечайте его как обычно.`; return; }
       $("fHint").textContent = tr ? "Пробное занятие не будет стоить ничего." : (s.price>0 ? "Стоимость: "+rub(num($("fH").value)*s.price)+". Для занятий по расписанию используйте «Сегодня» или «Календарь»." : "Цена за час не указана.");
     } else if(s.mode==="month" && s.price>0){ const k=(d||today()).slice(0,7); const p=planOf(s,k); $("fHint").textContent=`По расписанию в ${MONTHS_GEN[+k.slice(5)-1]}: ${lessonsWord(p.count)}, ${fmtH(p.hours)} = ${rub(p.hours*s.price)}.`; }
     else $("fHint").textContent="";
@@ -2095,7 +2167,9 @@ function openEventForm(sid,type,date){
     if(!$("fAmt").value && u>0) $("fAmt").value=u;
   };
   $("fSt").onchange=()=>{ const s=byId($("fSt").value); if(s) setHours("fH",s.hours||1); chips(); updHint(); };
-  $("fDate").onchange=updHint; $("fH").oninput=updHint;
+  const repTxt=()=>{ const d=$("fDate").value; if(d) $("fRepeatTxt").textContent=`Каждую неделю: ${WD_PL[parse(d).getDay()]} — добавить в расписание`; };
+  $("fDate").onchange=()=>{ updHint(); repTxt(); }; $("fH").oninput=updHint; repTxt();
+  $("fRepeat").onchange=()=>{ if($("fRepeat").checked){ $("fTrial").checked=false; if(!$("fTime").value) $("fTime").focus(); } updHint(); };
   if($("fTrial")) $("fTrial").onchange=updHint;
   setType(cur);
   $("fCancel").onclick=closeModal;
@@ -2109,6 +2183,11 @@ function openEventForm(sid,type,date){
       ev.amount=a;
     } else {
       const h=num($("fH").value); if(!(h>0)){ $("fHint").textContent="Укажите длительность."; return; }
+      if($("fRepeat").checked){
+        const tm=$("fTime").value; if(!tm){ $("fHint").innerHTML='<span class="warn">Укажите время — с ним занятие встанет в расписание.</span>'; return; }
+        const w=parse(d).getDay(), rows=schedRowsOf(s,d).filter(r=>r.w!==w).concat([{w,time:tm,dur:h}]).sort((a,b)=>WD_ORDER.indexOf(a.w)-WD_ORDER.indexOf(b.w));
+        students=students.map(x=>x.id===s.id?applySched(x,rows,d):x); saveStudents(); render(); closeModal(); return;
+      }
       ev.hours=h; ev.time=$("fTime").value; ev.price=s.price>0?s.price:null;
       if($("fTrial") && $("fTrial").checked) ev.trial=true;
     }
@@ -2144,7 +2223,7 @@ function renderDetail(){
     <div>Итог: <b>${balTxt}</b></div>
     <div class="hint">Всего оплачено ${rub(b.paid)}, проведено ${fmtH(b.hours)} на ${rub(b.cost)}.</div>
     <div class="sheet box" style="margin-top:10px">
-      <div class="setrow"><div class="lbl"><b>Расписание</b><span>${schedText(st)}</span></div></div>
+      <div class="setrow"><div class="lbl"><b>Расписание</b><span>${schedText(st)}</span></div><div class="ctl"><button class="sm" type="button" id="dSched">Изменить</button></div></div>
       <div class="setrow"><div class="lbl"><b>Оплата</b><span>${st.price>0?rub(st.price)+"/ч":"цена не указана"} · ${MODES[st.mode]||"способ не выбран"}${st.payMethod?" · "+PAYM[st.payMethod]:""}${st.note?" · "+esc(st.note):""}</span></div></div>
       ${st.group?`<div class="setrow"><div class="lbl"><b>Группа</b><span>${esc(st.group)}</span></div></div>`:""}
       ${st.contractNo||st.contractDate?`<div class="setrow"><div class="lbl"><b>Договор</b><span>${esc(st.contractNo||"")}${st.contractDate?" от "+fmtDate(st.contractDate)+"."+st.contractDate.slice(0,4):""}</span></div></div>`:""}
@@ -2165,6 +2244,7 @@ function renderDetail(){
   $("mNext").onclick=()=>{detailMonth=shiftMonth(detailMonth,1);pendingDelete=null;renderDetail();};
   $("dClose").onclick=closeModal;
   $("dEdit").onclick=()=>openStudentForm(st.id);
+  if($("dSched")) $("dSched").onclick=()=>openSchedule(st.id);
   $("dTpl").onclick=()=>openTemplates(st.id);
   $("det").querySelectorAll("[data-del]").forEach(btn=>btn.onclick=ev=>{
     ev.stopPropagation(); const id=btn.dataset.del;
@@ -2178,8 +2258,10 @@ function openStudentForm(sid){
   detailSid=null;
   const curP=periodFor(st,today());
   const curDays=curP?curP.days:[];
-  let picked=curDays.slice();
-  const defFrom = hasSched(st) ? today() : today().slice(0,7)+"-01";
+  const ed_d=schedEditDate(st);
+  const origRows=schedRowsOf(st,ed_d);
+  const sEd=schedEditor("sEd", origRows, st.hours||1);
+  const defFrom = ed_d>today() ? ed_d : hasSched(st) ? today() : today().slice(0,7)+"-01";
   openModal(`<h3>${sid?"Настройки: "+esc(st.name):"Новый ученик"}</h3>
     <div class="row2">
       <div><label for="sName">Имя</label><input id="sName" value="${esc(st.name)}"></div>
@@ -2196,14 +2278,13 @@ function openStudentForm(sid){
       <div><label for="sContractDate">Дата договора</label><input type="date" id="sContractDate" value="${esc(st.contractDate||"")}"></div>
     </div>
     <label><input type="checkbox" id="sOneoff" ${st.oneoff?"checked":""} style="width:auto;margin-right:6px">Без постоянного расписания — договариваемся каждый раз</label>
-    <label>Дни занятий</label>
-    <div class="wdpick" id="wdp">${WD_ORDER.map(w=>`<button type="button" data-w="${w}" aria-pressed="${picked.includes(w)}">${WD[w]}</button>`).join("")}</div>
-    <div class="hint">Разное время и длительность по дням проще задать через «Настройки» → «Загрузить расписание текстом».</div>
+    <label>Расписание: дни, время и длительность</label>
+    ${sEd.html()}
     <div class="row3">
       <div><label for="sPrice">Цена за час, ₽</label><input id="sPrice" type="number" min="0" inputmode="numeric" value="${st.price||""}"></div>
       <div><label for="sPriceFrom">Новая цена — с какого дня</label><input id="sPriceFrom" type="date" value="${today()}"></div>
       <div><label for="sH">Обычная длительность</label>${hoursInput("sH",st.hours||1)}</div>
-      <div><label for="sFrom">Новые дни — с какого дня</label><input id="sFrom" type="date" value="${defFrom}"></div>
+      <div><label for="sFrom">Новое расписание — с какого дня</label><input id="sFrom" type="date" value="${defFrom}"></div>
     </div>
     <div class="row3">
       <div><label for="sGrade">Класс</label><input id="sGrade" value="${esc(st.grade||"")}" placeholder="9"></div>
@@ -2220,31 +2301,27 @@ function openStudentForm(sid){
     <label for="sMode">Как платит</label>
     <select id="sMode"><option value="">— выберите —</option>${Object.entries(MODES).map(([k,v])=>`<option value="${k}" ${st.mode===k?"selected":""}>${v}</option>`).join("")}</select>
     <label for="sNote">Заметка</label><input id="sNote" value="${esc(st.note)}" placeholder="например: переводом маме до 5 числа">
-    <div class="hint">Новая цена применяется к будущим занятиям. Изменение дней не меняет прошлые месяцы.</div>
+    <div class="hint">Новая цена и новое расписание действуют с выбранного дня. Прошлые месяцы не пересчитываются.</div>
     <div class="hint" id="sErr"></div>
     <div class="foot">
       ${sid?`<button class="secondary" type="button" id="sArch">Убрать в архив</button>`:""}
       <button class="secondary" type="button" id="sBack">Отмена</button>
       <button class="primary" type="button" id="sSave">Сохранить</button></div>`);
-  $("wdp").onclick=e=>{ const b=e.target.closest("button"); if(!b) return; const w=+b.dataset.w;
-    picked = picked.includes(w) ? picked.filter(x=>x!==w) : picked.concat([w]); b.setAttribute("aria-pressed",picked.includes(w)); };
+  sEd.bind();
   $("sBack").onclick=()=> sid ? openDetail(sid) : closeModal();
   $("sSave").onclick=()=>{
     const name=$("sName").value.trim();
     if(!name){ $("sErr").textContent="Введите имя."; return; }
     const from=$("sFrom").value||today();
-    let sched=(st.sched||[]).slice();
-    const same = picked.length===curDays.length && picked.every(x=>curDays.includes(x));
-    if(!same){
-      const times={}, durs={};
-      picked.forEach(w=>{ if(curP&&curP.times&&curP.times[w]) times[w]=curP.times[w]; if(curP&&curP.durs&&curP.durs[w]) durs[w]=curP.durs[w]; });
-      sched=sched.filter(p=>p.from<from); sched.push({from,days:picked.slice().sort(),times,durs});
-    }
+    const rows=sEd.rows();
+    if(rows.some(r=>!r.time)){ $("sErr").innerHTML='<span class="warn">Укажите время для каждого дня занятий.</span>'; return; }
+    let sched=(st.sched||[]).slice(), perWeek=st.perWeek;
+    if(!sameRows(rows,origRows)){ const nx=applySched(st,rows,from); sched=nx.sched; perWeek=nx.perWeek; }
     const newPrice=Math.max(0,num($("sPrice").value));
     let prices=(st.prices||[]).slice();
     if(newPrice!==(st.price||0)){ const pf=$("sPriceFrom").value||today(); prices=prices.filter(x=>x.from!==pf).concat([{from:pf,price:newPrice}]).sort((a,b)=>a.from<b.from?-1:1); }
     const pair=$("sPair").value;
-    const upd={...st,name,sched,prices,pair,perWeek:picked.length||st.perWeek,price:newPrice,hours:num($("sH").value)||1,mode:$("sMode").value,note:$("sNote").value.trim(),
+    const upd={...st,name,sched,prices,pair,perWeek,price:newPrice,hours:num($("sH").value)||1,mode:$("sMode").value,note:$("sNote").value.trim(),
       oneoff:$("sOneoff").checked,last:$("sLast").value.trim(),group:$("sGroup").value.trim(),payMethod:$("sPayM").value,
       contractNo:$("sContractNo").value.trim(),contractDate:$("sContractDate").value,
       grade:$("sGrade").value.trim(),subject:$("sSubject").value.trim(),goal:$("sGoal").value.trim(),

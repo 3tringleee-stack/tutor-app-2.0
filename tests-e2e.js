@@ -232,6 +232,38 @@ const otherDays = (() => { const out = []; for (let i = 1; out.length < 4 && i <
     ok("ученик в архиве пропал из списка", !(await view()).includes("Рома ШК"));
 
     // ------------------------------------------------------------
+    section("10б. Расписание: время по дням, постоянные занятия");
+    const W2 = (WD + 2) % 7, tomorrow = addDays(TODAY, 1);
+    await $(`[data-open="${vera.id}"]`).click(); await $("#dSched").click();
+    ok("редактор показывает текущий день со временем", await $(`#schEd .srow[data-w="${WD}"] input[type=time]`).inputValue() === "17:00");
+    await $(`#schEd [data-sw="${W2}"]`).click();
+    ok("нажали новый день — появилась строка со временем и длительностью", await $(`#schEd .srow[data-w="${W2}"]`).count() === 1);
+    await $(`#schEd .srow[data-w="${W2}"] input[type=time]`).fill("19:15");
+    await page.evaluate(w => { const s = document.querySelector(`#schEd .srow[data-w="${w}"] select`); s.value = "1.5"; s.dispatchEvent(new Event("change", { bubbles: true })); }, W2);
+    await $(`#schEd .srow[data-w="${WD}"] input[type=time]`).fill("17:30");
+    await $("#schFrom").fill(tomorrow); await $("#schSave").click(); await page.waitForTimeout(100); await closeModal();
+    let vs = ((await data()).students || []).find(s => s.name === "Вера");
+    let last = vs.sched[vs.sched.length - 1];
+    ok("новое расписание с завтрашнего дня: новый день 19:15 на 1,5 ч", last.from === tomorrow && last.days.includes(W2) && last.times[W2] === "19:15" && last.durs[W2] === 1.5, JSON.stringify(last));
+    ok("время старого дня поменялось только в новом расписании (17:30)", last.times[WD] === "17:30" && vs.sched.some(p => p.from < tomorrow && p.times[WD] === "17:00"), JSON.stringify(vs.sched));
+    await tab("today");
+    ok("сегодняшнее занятие осталось в 17:00 — прошлое не пересчитано", (await rowText("Вера")).includes("17:00"), await rowText("Вера"));
+    // пустое время не пропускает
+    await tab("st"); await $(`[data-open="${vera.id}"]`).click(); await $("#dSched").click();
+    await $(`#schEd .srow[data-w="${W2}"] input[type=time]`).fill("");
+    await $("#schSave").click(); await page.waitForTimeout(60);
+    ok("без времени расписание не сохраняется, есть подсказка", (await text("#schErr")).includes("Укажите время"), await text("#schErr"));
+    await closeModal();
+    // разовое занятие сразу на постоянку
+    const gleb = ((await data()).students || []).find(s => s.name === "Глеб");
+    await $(`[data-q="lesson"][data-sid="${gleb.id}"]`).click();
+    await $("#fDate").fill(tomorrow); await $("#fDate").dispatchEvent("change");
+    ok("галочка называет день недели: «Каждую неделю: …»", (await text("#fRepeatTxt")).includes("Каждую неделю:"), await text("#fRepeatTxt"));
+    await $("#fRepeat").check(); await $("#fTime").fill("12:00"); await $("#fSave").click(); await page.waitForTimeout(100);
+    const g2 = ((await data()).students || []).find(s => s.name === "Глеб"), gp = g2.sched[g2.sched.length - 1];
+    const tw = new Date(tomorrow + "T12:00:00").getDay();
+    ok("«каждую неделю» поставило Глеба в расписание: день, 12:00", !g2.oneoff && gp.from === tomorrow && gp.days.includes(tw) && gp.times[tw] === "12:00", JSON.stringify(g2.sched));
+
     section("11. Свободные окна");
     await $("#freeBtn").click(); await page.waitForTimeout(80);
     const fw = await text("#fwBody");
