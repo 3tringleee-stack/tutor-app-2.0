@@ -179,8 +179,11 @@ textarea{min-height:60px;resize:vertical}
 .choice button span{font-size:12.5px;color:var(--muted)}
 .choice button[aria-pressed="true"]{border-color:var(--blue);box-shadow:inset 0 0 0 1px var(--blue);background:var(--blue-soft)}
 .st-status.moved{color:var(--blue)}
-.row3{display:grid;grid-template-columns:1.3fr 1fr 1fr;gap:8px}
-@media (max-width:420px){.row3{grid-template-columns:1fr 1fr}.row3>div:first-child{grid-column:1/-1}}
+.row3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.row3>div{min-width:0}
+.row3 input,.row3 select{width:100%;min-width:0}
+@media (max-width:520px){.row3{grid-template-columns:1fr}}
+@media (max-width:520px){.row2{grid-template-columns:1fr}}
 .paybar{grid-column:1/-1;margin-top:2px}
 .track{height:8px;border-radius:99px;background:var(--grid);overflow:hidden}
 .fill{height:100%;border-radius:99px;background:var(--green)}
@@ -271,6 +274,28 @@ textarea{min-height:60px;resize:vertical}
 .freeday .chips{margin-top:5px}
 .chip.free{background:var(--green-soft);border-color:transparent;color:var(--green);font-weight:600}
 .chip.free[aria-pressed="true"]{background:var(--green);color:#fff}
+.hero{text-align:center;padding:30px 18px}
+.hero .ico{font-size:38px;line-height:1}
+.hero h2{font-size:21px;margin:10px 0 4px;font-weight:800}
+.hero p{color:var(--muted);font-size:14.5px;max-width:460px;margin:0 auto 16px}
+.heroacts{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+.heroacts .primary{flex:none;padding:11px 18px}
+.steps{display:grid;gap:10px;max-width:520px;margin:20px auto 0;text-align:left}
+.step{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:var(--paper)}
+.step .num{width:24px;height:24px;border-radius:50%;background:var(--blue-soft);color:var(--blue);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;flex:none}
+.step b{display:block;font-size:14.5px}
+.step span{font-size:12.5px;color:var(--muted)}
+.step.done{opacity:.55}
+.step.done .num{background:var(--green-soft);color:var(--green)}
+.wiz-prog{display:flex;gap:5px;margin-bottom:12px}
+.wiz-prog i{flex:1;height:4px;border-radius:99px;background:var(--grid)}
+.wiz-prog i.on{background:var(--blue)}
+.pick{display:grid;gap:8px;margin:6px 0 2px}
+.pick button{text-align:left;border:1px solid var(--line);background:var(--paper);border-radius:12px;padding:12px 14px}
+.pick button b{display:block;font-size:15px}
+.pick button span{font-size:12.5px;color:var(--muted)}
+.pick button[aria-pressed="true"]{border-color:var(--blue);box-shadow:inset 0 0 0 1px var(--blue);background:var(--blue-soft)}
+.small-link{background:none;border:0;color:var(--muted);font-size:13px;text-decoration:underline;padding:4px}
 </style>
 </head>
 <body>
@@ -462,7 +487,7 @@ function saveMonth(key){
 function loadLocal(){
   try{ const raw=localStorage.getItem(LS_KEY); if(raw){ const o=JSON.parse(raw); if(o.students) students=o.students; if(o.months) months=o.months; } }catch(e){}
 }
-function normStudents(){ students=students.map(s=>({mode:"",note:"",hours:1,pair:"",grade:"",subject:"",goal:"",parent:"",contact:"",about:"",last:"",group:"",payMethod:"",contractNo:"",contractDate:"",...s,sched:Array.isArray(s.sched)?s.sched:[],prices:Array.isArray(s.prices)?s.prices:[]})); }
+function normStudents(){ students=students.map(s=>({mode:"",note:"",hours:1,pair:"",grade:"",subject:"",goal:"",parent:"",contact:"",about:"",last:"",group:"",payMethod:"",contractNo:"",contractDate:"",oneoff:false,...s,sched:Array.isArray(s.sched)?s.sched:[],prices:Array.isArray(s.prices)?s.prices:[]})); }
 function rateAt(st,d){
   let r=null;
   (st.prices||[]).slice().sort((a,b)=>a.from<b.from?-1:1).forEach(p=>{ if(p.from<=d) r=p.price; });
@@ -613,6 +638,7 @@ const isDraft = ev => !!ev && (ev.type==="makeup"||ev.type==="tweak");
 function rateOf(ev,st){ return ev.price>0 ? ev.price : (st?st.price:0); }
 function hoursOf(ev,st){ return ev.hours>0 ? ev.hours : 1; }
 function costOf(ev, st){
+  if(ev.trial) return 0;
   if(ev.type==="lesson" || (ev.type==="cancel" && ev.status==="charged")) return hoursOf(ev,st)*rateOf(ev,st);
   return 0;
 }
@@ -765,9 +791,9 @@ function render(){
   $("sumPend").textContent=unmarkedPast().length+pendC;
 
   const miss=[];
-  const np=active().filter(s=>!(s.price>0)).map(s=>s.name);
-  const nd=active().filter(s=>!hasSched(s)).map(s=>s.name);
-  const nm=active().filter(s=>!s.mode).map(s=>s.name);
+  const np=active().filter(s=>!(s.price>0)).map(s=>fullName(s));
+  const nd=active().filter(s=>!hasSched(s)&&!s.oneoff).map(s=>fullName(s));
+  const nm=active().filter(s=>!s.mode&&!s.oneoff).map(s=>fullName(s));
   if(np.length) miss.push("<b>цена за час</b>: "+np.map(esc).join(", "));
   if(nd.length) miss.push("<b>дни занятий</b>: "+nd.map(esc).join(", "));
   if(nm.length) miss.push("<b>способ оплаты</b>: "+nm.map(esc).join(", "));
@@ -789,6 +815,11 @@ function render(){
   }
 
   const v=$("view");
+  if(!active().length){
+    v.innerHTML=viewWelcome();
+    $("repNotice").hidden=true; $("setupNotice").hidden=true;
+    return;
+  }
   if(tab==="today") v.innerHTML=viewToday();
   else if(tab==="cal") v.innerHTML=viewCal();
   else if(tab==="rep") v.innerHTML=viewRep();
@@ -814,14 +845,115 @@ function slotRow(g){
     ${group.length>1?`<button class="sm" type="button" data-split="${key}" title="Отметить каждого отдельно">по одному</button>`:""}
     <button class="sm done" type="button" data-done="${key}">Проведено</button>
     <button class="sm" type="button" data-tweak="${key}" title="Изменить время и длительность">✎<span class="btxt"> Изменить</span></button>
-    <button class="sm" type="button" data-move="${key}" title="Перенести на другой день">⇄<span class="btxt"> Перенести</span></button>
     <button class="sm" type="button" data-miss="${key}">Не состоялось</button></div></div>`;
   let label="";
-  if(s==="lesson") label=`<span class="st-status done">проведено${st.price>0?" · "+rub(costOf(e,st)):""}</span>`;
+  if(s==="lesson") label=`<span class="st-status done">проведено${e.trial?" · пробное":st.price>0?" · "+rub(costOf(e,st)):""}</span>`;
   else if(s==="moved") label = e.toDate ? `<span class="st-status moved">перенесено на ${fmtDate(e.toDate)}${e.toTime?" "+e.toTime:""}</span>` : `<span class="st-status open">перенос — дата не назначена</span>${sl.setKey?`<button class="sm done" type="button" data-setdate="${e.id}">Назначить</button>`:""}`;
   else if(s==="skip") label=`<span class="st-status skip">не было (каникулы)</span>`;
   else if(s==="cancel") label = e.status==="charged" ? `<span class="st-status cancel">отмена с оплатой</span>` : e.status==="free" ? `<span class="st-status cancel">отмена без оплаты</span>` : `<span class="st-status open">отмена — выберите</span>`;
   return `<div class="prow">${who}<div class="btns">${label}<button class="sm" type="button" data-edit="${key}">Изменить</button><button class="undo" type="button" data-undo="${key}" title="Снять отметку" aria-label="Снять отметку">↺</button></div></div>`;
+}
+
+function viewWelcome(){
+  return `<div class="sheet hero">
+    <div class="ico">📘</div>
+    <h2>Добро пожаловать</h2>
+    <p>Приложение считает, кто сколько должен, и готовит отчёты родителям. Начнём с ваших учеников — это займёт пару минут.</p>
+    <div class="heroacts">
+      <button class="primary" type="button" id="wizStart">Добавить первого ученика</button>
+      <button class="secondary" type="button" id="wizGroup">Сразу группу</button>
+    </div>
+    <div class="steps">
+      <div class="step"><span class="num">1</span><div><b>Ученик и расписание</b><span>Имя, дни недели, время и длительность занятия</span></div></div>
+      <div class="step"><span class="num">2</span><div><b>Цена и способ оплаты</b><span>Ставка за час и как платят: за месяц, пакетом или после занятий</span></div></div>
+      <div class="step"><span class="num">3</span><div><b>Отмечайте занятия</b><span>После урока — «Проведено», и баланс считается сам</span></div></div>
+    </div>
+    <div style="margin-top:14px"><button class="small-link" type="button" id="wizImport">У меня уже есть список — загрузить расписание текстом</button></div>
+  </div>`;
+}
+
+/* ---------- мастер добавления ученика ---------- */
+function openWizard(){
+  detailSid=null;
+  let stepN=1;
+  const data={name:"",last:"",days:[],time:"18:00",hours:1,price:0,mode:"",parent:"",contact:"",oneoff:false};
+  const render3=()=>{
+    const prog=`<div class="wiz-prog">${[1,2,3].map(i=>`<i class="${i<=stepN?"on":""}"></i>`).join("")}</div>`;
+    if(stepN===1){
+      openModal(`${prog}<h3>Шаг 1. Кто занимается</h3>
+        <div class="row2">
+          <div><label for="wName">Имя</label><input id="wName" value="${esc(data.name)}" placeholder="Арина"></div>
+          <div><label for="wLast">Фамилия или пометка</label><input id="wLast" value="${esc(data.last)}" placeholder="чтобы не путать тёзок"></div>
+        </div>
+        <label><input type="checkbox" id="wOne" ${data.oneoff?"checked":""} style="width:auto;margin-right:6px">Занимаемся по договорённости, без постоянного расписания</label>
+        <label>В какие дни занимаетесь</label>
+        <div class="wdpick" id="wWd">${WD_ORDER.map(w=>`<button type="button" data-w="${w}" aria-pressed="${data.days.includes(w)}">${WD[w]}</button>`).join("")}</div>
+        <div class="row2">
+          <div><label for="wTime">Во сколько</label><input type="time" id="wTime" step="300" value="${data.time}"></div>
+          <div><label for="wH">Сколько часов</label>${hoursInput("wH",data.hours)}</div>
+        </div>
+        <div class="hint" id="wErr"></div>
+        <div class="foot"><button class="secondary" type="button" id="wCancel">Отмена</button><button class="primary" type="button" id="wNext">Далее</button></div>`);
+      $("wWd").onclick=e=>{ const b=e.target.closest("button"); if(!b) return; const w=+b.dataset.w;
+        data.days = data.days.includes(w) ? data.days.filter(x=>x!==w) : data.days.concat([w]);
+        b.setAttribute("aria-pressed",data.days.includes(w)); };
+      $("wCancel").onclick=closeModal;
+      $("wNext").onclick=()=>{
+        data.name=$("wName").value.trim(); data.last=$("wLast").value.trim();
+        data.time=$("wTime").value; data.hours=num($("wH").value)||1; data.oneoff=$("wOne").checked;
+        if(!data.name){ $("wErr").textContent="Введите имя."; return; }
+        if(!data.oneoff && !data.days.length){ $("wErr").textContent="Выберите дни или отметьте «по договорённости»."; return; }
+        if(data.oneoff) data.days=[];
+        stepN=2; render3();
+      };
+    } else if(stepN===2){
+      openModal(`${prog}<h3>Шаг 2. Деньги</h3>
+        <div class="hint" style="margin-top:-6px">${esc(data.name)}: ${data.oneoff?"разовые занятия":WD_ORDER.filter(w=>data.days.includes(w)).map(w=>WD[w]).join(", ")+", "+data.time}, ${fmtH(data.hours)}</div>
+        <label for="wPrice">Цена за час, ₽</label><input id="wPrice" type="number" min="0" inputmode="numeric" value="${data.price||""}" placeholder="1500">
+        <div class="hint" id="wCost"></div>
+        <label>Как платит</label>
+        <div class="pick" id="wMode">
+          <button type="button" data-m="month" aria-pressed="${data.mode==="month"}"><b>За месяц вперёд</b><span>В начале месяца платит за все занятия по расписанию</span></button>
+          <button type="button" data-m="prepaid" aria-pressed="${data.mode==="prepaid"}"><b>Пакетом вперёд</b><span>Оплачивает 4 или 8 занятий, они списываются по мере проведения</span></button>
+          <button type="button" data-m="after" aria-pressed="${data.mode==="after"}"><b>После занятий</b><span>Платит по факту: за урок или в конце месяца</span></button>
+        </div>
+        <div class="hint" id="wErr2"></div>
+        <div class="foot"><button class="secondary" type="button" id="wBack">Назад</button><button class="primary" type="button" id="wNext2">Далее</button></div>`);
+      const cost=()=>{ const p=num($("wPrice").value); $("wCost").textContent = p>0 ? `Одно занятие — ${rub(p*data.hours)}, в неделю ${rub(p*data.hours*data.days.length)}.` : ""; };
+      $("wPrice").oninput=cost; cost();
+      $("wMode").onclick=e=>{ const b=e.target.closest("button"); if(!b) return; data.mode=b.dataset.m;
+        $("wMode").querySelectorAll("button").forEach(x=>x.setAttribute("aria-pressed",x===b)); };
+      $("wBack").onclick=()=>{ stepN=1; render3(); };
+      $("wNext2").onclick=()=>{
+        data.price=Math.max(0,num($("wPrice").value));
+        if(!(data.price>0)){ $("wErr2").textContent="Укажите цену за час — без неё не посчитать долг и аванс."; return; }
+        if(!data.mode && !data.oneoff){ $("wErr2").textContent="Выберите, как платит ученик."; return; }
+        stepN=3; render3();
+      };
+    } else {
+      openModal(`${prog}<h3>Шаг 3. Связь с родителем</h3>
+        <div class="hint" style="margin-top:-6px">Нужно, чтобы отправлять отчёты и напоминания. Можно пропустить и заполнить позже.</div>
+        <div class="row2">
+          <div><label for="wParent">Имя родителя</label><input id="wParent" value="${esc(data.parent)}" placeholder="Ирина"></div>
+          <div><label for="wContact">Контакт</label><input id="wContact" value="${esc(data.contact)}" placeholder="@username или телефон"></div>
+        </div>
+        <div class="hint">После сохранения занятия появятся в календаре. Отмечайте их кнопкой «Проведено» — баланс посчитается сам.</div>
+        <div class="foot"><button class="secondary" type="button" id="wBack2">Назад</button><button class="primary" type="button" id="wSave">Готово</button></div>`);
+      $("wBack2").onclick=()=>{ stepN=2; render3(); };
+      $("wSave").onclick=()=>{
+        data.parent=$("wParent").value.trim(); data.contact=$("wContact").value.trim();
+        const from=today().slice(0,7)+"-01";
+        const times={}, durs={};
+        data.days.forEach(w=>{ if(data.time) times[w]=data.time; durs[w]=data.hours; });
+        students=students.concat([{id:"s"+uid(),name:data.name,last:data.last,group:"",oneoff:data.oneoff,perWeek:data.days.length,
+          price:data.price,prices:[],hours:data.hours,mode:data.mode,payMethod:"",note:"",
+          grade:"",subject:"",goal:"",parent:data.parent,contact:data.contact,about:"",contractNo:"",contractDate:"",pair:"",
+          sched:data.days.length?[{from,days:data.days.slice().sort(),times,durs}]:[],archived:false}]);
+        saveStudents(); tab="today"; closeModal(); render();
+      };
+    }
+  };
+  render3();
 }
 
 function viewToday(){
@@ -868,6 +1000,48 @@ function viewToday(){
   return side ? `<div class="cols wide"><div>${h}</div><div>${side}</div></div>` : h;
 }
 
+function monthPulse(key){
+  const dates=monthDates(key), t=today();
+  const r={heldN:0,heldH:0,earned:0,leftN:0,leftH:0,leftMoney:0,unmarked:0,cancN:0,movedN:0,paid:0,weeks:[]};
+  const offset=(parse(dates[0]).getDay()+6)%7;
+  dates.forEach((d,i)=>{
+    const wi=Math.floor((i+offset)/7);
+    if(!r.weeks[wi]) r.weeks[wi]={h:0,label:""};
+    slotsOn(d).forEach(sl=>{
+      const stt=slotStatus(sl);
+      if(stt==="lesson"){ r.heldN++; r.heldH+=hoursOf(sl.ev,sl.st); r.earned+=costOf(sl.ev,sl.st); r.weeks[wi].h+=hoursOf(sl.ev,sl.st); }
+      else if(stt==="cancel"){ r.cancN++; if(sl.ev.status==="charged") r.earned+=costOf(sl.ev,sl.st); }
+      else if(stt==="moved") r.movedN++;
+      else if(stt==="open"){
+        if(d<t) r.unmarked++;
+        else { r.leftN++; r.leftH+=sl.hours; r.leftMoney+=sl.hours*rateAt(sl.st,d); r.weeks[wi].h+=sl.hours; }
+      }
+    });
+    (months[key]||[]).filter(e=>e.date===d&&e.type==="payment").forEach(e=>r.paid+=+e.amount||0);
+  });
+  r.weeks.forEach((w,i)=>{ w.label=(i+1)+"\u2009нед"; });
+  return r;
+}
+function viewPulse(key){
+  const r=monthPulse(key);
+  if(!r.heldN && !r.leftN && !r.unmarked && !r.paid) return "";
+  const maxW=Math.max(1,...r.weeks.map(w=>w.h));
+  const bars=r.weeks.map(w=>`<div class="b" title="${fmtH(w.h)}"><div class="bar" style="height:${Math.round((w.h/maxW)*100)}%;${w.h?"":"background:var(--grid)"}"></div><div class="bl">${w.label}</div></div>`).join("");
+  const free=freeSlots()[0];
+  return `<div class="sheet box"><h2>${monthLabel(key)} в цифрах</h2>
+    <div class="kpi">
+      <div><b>${r.heldN} / ${r.heldN+r.leftN}</b><span>проведено из запланированных</span></div>
+      <div><b>${fmtH(r.heldH)}</b><span>часов за месяц${r.leftH?`, ещё ${fmtH(r.leftH)}`:""}</span></div>
+      <div><b>${rub(r.earned)}</b><span>заработано${r.leftMoney?`, ждёт ${rub(r.leftMoney)}`:""}</span></div>
+      <div><b>${rub(r.paid)}</b><span>получено оплат</span></div>
+    </div>
+    <div class="bars">${bars}</div>
+    <div class="hint">Загрузка по неделям, часы</div>
+    ${r.unmarked?`<div class="insight">Не отмечено занятий: ${r.unmarked}. <button class="sm done" type="button" data-gotoday="1" style="margin-left:6px">Отметить</button></div>`:""}
+    ${(r.movedN||r.cancN)?`<div class="hint">Переносов: ${r.movedN} · отмен: ${r.cancN}</div>`:""}
+    ${free?`<div class="hint">Ближайшее свободное окно: ${WD_LONG[parse(free.d).getDay()]} ${fmtDate(free.d)}, ${fromMinutes(free.slots[0])}. <button class="sm" type="button" data-free2="1">Все окна</button></div>`:""}
+  </div>`;
+}
 function viewCal(){
   slotRegistry={};
   const dates=monthDates(calMonth); const t=today();
@@ -883,14 +1057,15 @@ function viewCal(){
   h+=`<div class="sheet box"><div class="monthbar"><button class="sm" type="button" data-cm="-1" aria-label="Предыдущий месяц">‹</button><strong>${monthLabel(calMonth)}</strong><button class="sm" type="button" data-cm="1" aria-label="Следующий месяц">›</button></div>
     <div class="cal">${cells}</div>
     <div class="legend"><span><i class="dot done"></i>проведено</span><span><i class="dot open"></i>по плану</span><span><i class="dot cancel"></i>отмена</span><span><i class="dot skip"></i>перенос / каникулы</span></div>
-    <div class="hint">Нажмите на день, чтобы отметить занятия или добавить оплату.</div></div>`;
+    <div class="hint">Нажмите на день, чтобы отметить занятия.</div></div>`;
+  h+=viewPulse(calMonth);
   let side="";
   if(selDay && selDay.slice(0,7)===calMonth){
     const sl=slotsOn(selDay);
     side+=`<div class="sheet box"><h2>${fmtDate(selDay)}, ${WD_LONG[parse(selDay).getDay()]}</h2>`;
     side+= sl.length ? groupSlots(sl).map(slotRow).join("") : '<div class="empty">Занятий нет.</div>';
-    side+=`<div class="hint">Каникулы можно отметить заранее: «Не состоялось» → «Каникулы». Такие дни не войдут в счёт за месяц.</div>
-      <div class="foot" style="margin-top:8px"><button class="secondary" type="button" data-new="${selDay}">Доп. занятие или оплата</button></div></div>`;
+    side+=`<div class="hint">Перенести или отменить занятие — кнопка «Не состоялось».</div>
+      </div>`;
   }
   return side ? `<div class="cols wide"><div>${h}</div><div>${side}</div></div>` : h;
 }
@@ -1080,7 +1255,9 @@ function parentText(st,key){
 }
 
 function schedText(st){
-  const p=periodFor(st,today()); if(!p||!p.days.length) return `<span class="warn">дни не выбраны</span>`;
+  const p=periodFor(st,today());
+  if(st.oneoff && (!p||!p.days.length)) return "разовые занятия";
+  if(!p||!p.days.length) return `<span class="warn">дни не выбраны</span>`;
   return WD_ORDER.filter(w=>p.days.includes(w)).map(w=>{
     const t=p.times&&p.times[w]; const h=(p.durs&&p.durs[w])||st.hours||1;
     return WD[w]+(t?" "+t:"")+(h!==1?" ("+fmtH(h)+")":"");
@@ -1124,7 +1301,7 @@ function openProfile(){
     </div>
     <label for="uiOwner">Ваше имя</label><input id="uiOwner" value="${esc(ui.owner||"")}" placeholder="Как подписывать сообщения родителям">
     <div id="setBody" style="margin-top:12px">${viewSettings()}</div>
-    <div class="foot"><button class="primary" type="button" id="prClose">Готово</button></div>`);
+    <div class="foot"><button class="primary" type="button" id="prClose">Закрыть</button></div>`);
   $("uiOwner").onchange=()=>{ ui.owner=$("uiOwner").value; saveUI(); };
   $("prClose").onclick=closeModal;
   bindSettings();
@@ -1186,7 +1363,9 @@ function viewSettings(){
       <div class="sheet box" style="margin-top:14px">
         <h2>Данные</h2>
         <div class="hint" style="margin-top:0">Копия, восстановление и таблица для Excel.</div>
-        <div class="btns" style="margin-top:8px"><button class="sm done" type="button" id="setBackup">Резервная копия</button></div>
+        <div class="btns" style="margin-top:8px"><button class="sm done" type="button" id="setBackup">Резервная копия</button>
+          <button class="sm" type="button" id="impSched">Загрузить расписание текстом</button></div>
+        <div class="hint">Загрузка текстом удобна, если список учеников уже есть в заметках или таблице.</div>
         <div class="setrow" style="margin-top:10px"><div class="lbl"><b>Хранилище</b><span>${mode==="cloud"?"облако Telegram":mode==="db"?"аккаунт Claude":"это устройство"} · ${esc(diag)}</span></div></div>
       </div>
 
@@ -1256,7 +1435,7 @@ function viewStudents(){
         <button class="act pay" type="button" data-q="payment" data-sid="${st.id}">+ Оплата</button>
       </div></div>`;
   }).join("");
-  return `<div class="sheet list">${rows}<button class="addst" type="button" id="addSt">Добавить ученика</button><button class="addst" type="button" id="addGroup">Добавить группу учеников</button><button class="addst" type="button" id="freeBtn">Свободные окна для нового ученика</button><button class="addst" type="button" id="impSched">Импорт расписания</button></div>`;
+  return `<div class="sheet list">${rows}<button class="addst" type="button" id="addSt">Добавить ученика</button><button class="addst" type="button" id="addGroup">Добавить группу учеников</button><button class="addst" type="button" id="freeBtn">Свободные окна для нового ученика</button></div>`;
 }
 
 document.addEventListener("click",e=>{
@@ -1289,10 +1468,14 @@ document.addEventListener("click",e=>{
   else if(a.new) openEventForm(null,"lesson",a.new);
   else if(a.q) openEventForm(a.sid,a.q);
   else if(a.open) openDetail(a.open);
-  else if(t.id==="addSt") openStudentForm(null);
+  else if(t.id==="addSt") openWizard();
   else if(t.id==="impSched") openImport();
   else if(t.id==="freeBtn") openFree();
+  else if(t.id==="wizStart") openWizard();
+  else if(t.id==="wizGroup") openGroupForm();
+  else if(t.id==="wizImport") openImport();
   else if(a.free2) openFree();
+  else if(a.gotoday){ tab="today"; render(); }
 });
 
 /* ---------- когда и за какой месяц отчёт ---------- */
@@ -1442,7 +1625,7 @@ function openMiss(g){
       <div class="hint">${st.price>0?"Спишется "+rub(sl.hours*st.price)+".":"Цена за час не указана."}</div></div>
     <label for="mCom">Комментарий</label><input id="mCom" placeholder="Необязательно">
     <div class="hint" id="mErr"></div>
-    <div class="foot"><button class="secondary" type="button" id="mClose">Закрыть</button><button class="primary" type="button" id="mSave" disabled>Сохранить</button></div>`);
+    <div class="foot"><button class="secondary" type="button" id="mClose">Отмена</button><button class="primary" type="button" id="mSave" disabled>Сохранить</button></div>`);
   let choice=null;
   $("mc").onclick=e=>{ const b=e.target.closest("button"); if(!b) return; choice=b.dataset.o;
     $("mc").querySelectorAll("button").forEach(x=>x.setAttribute("aria-pressed",x===b));
@@ -1498,7 +1681,7 @@ function openTweak(g){
     ${sl.kind==="plan"?`<label style="margin-top:12px"><input type="checkbox" id="twAll" style="width:auto;margin-right:6px">Менять и дальше: все ${wd} с этой даты</label>`:""}
     <div class="foot">
       ${sl.ev&&sl.ev.type==="tweak"?`<button class="secondary" type="button" id="twReset">Вернуть как в расписании</button>`:""}
-      <button class="secondary" type="button" id="twClose">Закрыть</button>
+      <button class="secondary" type="button" id="twClose">Отмена</button>
       <button class="primary" type="button" id="twSave">Сохранить</button></div>`);
   const hint=()=>{ const h=num($("twH").value)||sl.hours;
     $("twHint").textContent = (st.price>0?"Стоимость занятия: "+rub(h*rateAt(st,sl.d))+". ":"")+"По расписанию "+fmtH(baseH)+(baseT?" в "+baseT:"")+"."; };
@@ -1536,7 +1719,8 @@ function openSlotEdit(sl){
   const child = e.child ? findEv(e.child) : null;
   let body="";
   if(s==="lesson") body=`<label for="eH">Длительность, часов</label>${hoursInput("eH",hoursOf(e,st))}
-      <div class="hint" id="eCost">${st.price>0?"Стоимость: "+rub(hoursOf(e,st)*rateOf(e,st)):""}</div>`;
+      <label><input type="checkbox" id="eTrial" ${e.trial?"checked":""} style="width:auto;margin-right:6px">Пробное занятие — бесплатно</label>
+      <div class="hint" id="eCost">${e.trial?"Сейчас бесплатно.":st.price>0?"Стоимость: "+rub(hoursOf(e,st)*rateOf(e,st)):""}</div>`;
   else if(s==="cancel" && e.status==="charged") body=`<label for="eH">Оплачиваемых часов</label>${hoursInput("eH",hoursOf(e,st))}`;
   else if(s==="moved") body=`<div class="hint">${!e.toDate?"Дата переноса ещё не назначена.":""}Перенесено на ${e.toDate?fmtDate(e.toDate)+(e.toTime?" "+e.toTime:""):"—"}. ${child&&child.type!=="makeup"?"Это занятие уже отмечено — отмена переноса удалит и эту отметку.":""}</div>`;
   openModal(`<h3>${esc(st.name)} · ${fmtDate(sl.d)}</h3>
@@ -1544,14 +1728,18 @@ function openSlotEdit(sl){
     <label for="eCom">Заметка: что прошли, что задано</label><input id="eCom" value="${esc(e.comment||"")}">
     <div class="foot">
       <button class="secondary" type="button" id="eUndo">${s==="moved"?"Отменить перенос":"Снять отметку"}</button>
-      <button class="secondary" type="button" id="eClose">Закрыть</button>
+      <button class="secondary" type="button" id="eClose">Отмена</button>
       <button class="primary" type="button" id="eSave">Сохранить</button></div>`);
-  if($("eH") && $("eCost")) $("eH").oninput=()=>{ $("eCost").textContent = st.price>0?"Стоимость: "+rub(num($("eH").value)*rateOf(e,st)):""; };
+  const eCostUpd=()=>{ if(!$("eCost")) return;
+    $("eCost").textContent = ($("eTrial")&&$("eTrial").checked) ? "Сейчас бесплатно." : (st.price>0?"Стоимость: "+rub(num($("eH").value)*rateOf(e,st)):""); };
+  if($("eH")) $("eH").oninput=eCostUpd;
+  if($("eTrial")) $("eTrial").onchange=eCostUpd;
   $("eClose").onclick=closeModal;
   $("eUndo").onclick=()=>{ undoSlot(e); closeModal(); };
   $("eSave").onclick=()=>{
     const patch={comment:$("eCom").value.trim()};
     if($("eH")){ const h=num($("eH").value); if(!(h>0)) return; patch.hours=h; }
+    if($("eTrial")) patch.trial=$("eTrial").checked;
     change(()=>_set(e.id,x=>({...x,...patch}))); closeModal();
   };
 }
@@ -1566,7 +1754,7 @@ function openSetDate(id){
       <div><label for="sdH">Часов</label>${hoursInput("sdH",e.hours||1)}</div>
     </div>
     <div class="hint" id="sdErr"></div>
-    <div class="foot"><button class="secondary" type="button" id="sdClose">Закрыть</button><button class="primary" type="button" id="sdSave">Сохранить</button></div>`);
+    <div class="foot"><button class="secondary" type="button" id="sdClose">Отмена</button><button class="primary" type="button" id="sdSave">Сохранить</button></div>`);
   $("sdClose").onclick=closeModal;
   $("sdSave").onclick=()=>{
     const d=$("sdDate").value, tm=$("sdTime").value, h=num($("sdH").value)||e.hours||1;
@@ -1695,17 +1883,19 @@ function openEventForm(sid,type,date){
       <div class="lf"><label for="fTime">Время</label><input type="time" id="fTime" step="300"></div>
       <div class="lf"><label for="fH">Часов</label>${hoursInput("fH",(s0&&s0.hours)||1)}</div>
     </div>
+    <div class="lf"><label><input type="checkbox" id="fTrial" style="width:auto;margin-right:6px">Пробное занятие — бесплатно</label></div>
     <div id="amtWrap" hidden><label for="fAmt">Сумма, ₽</label><input type="number" inputmode="numeric" min="0" id="fAmt">
       <div class="chips" id="fChips"></div></div>
     <div class="hint" id="fHint"></div>
     <label for="fCom">Комментарий</label><input id="fCom" placeholder="Необязательно">
-    <div class="foot"><button class="secondary" type="button" id="fCancel">Закрыть</button><button class="primary" type="button" id="fSave">Сохранить</button></div>`);
+    <div class="foot"><button class="secondary" type="button" id="fCancel">Отмена</button><button class="primary" type="button" id="fSave">Сохранить</button></div>`);
   let cur=type==="payment"?"payment":"lesson";
   const updHint=()=>{
     const s=byId($("fSt").value), d=$("fDate").value;
     if(!s){ $("fHint").textContent=""; return; }
     if(cur==="lesson"){
-      $("fHint").textContent = s.price>0 ? "Стоимость: "+rub(num($("fH").value)*s.price)+". Для занятий по расписанию используйте «Сегодня» или «Календарь»." : "Цена за час не указана.";
+      const tr=$("fTrial")&&$("fTrial").checked;
+      $("fHint").textContent = tr ? "Пробное занятие не будет стоить ничего." : (s.price>0 ? "Стоимость: "+rub(num($("fH").value)*s.price)+". Для занятий по расписанию используйте «Сегодня» или «Календарь»." : "Цена за час не указана.");
     } else if(s.mode==="month" && s.price>0){ const k=(d||today()).slice(0,7); const p=planOf(s,k); $("fHint").textContent=`По расписанию в ${MONTHS_GEN[+k.slice(5)-1]}: ${lessonsWord(p.count)}, ${fmtH(p.hours)} = ${rub(p.hours*s.price)}.`; }
     else $("fHint").textContent="";
   };
@@ -1722,6 +1912,7 @@ function openEventForm(sid,type,date){
   };
   $("fSt").onchange=()=>{ const s=byId($("fSt").value); if(s) $("fH").value=s.hours||1; chips(); updHint(); };
   $("fDate").onchange=updHint; $("fH").oninput=updHint;
+  if($("fTrial")) $("fTrial").onchange=updHint;
   setType(cur);
   $("fCancel").onclick=closeModal;
   $("fSave").onclick=()=>{
@@ -1735,6 +1926,7 @@ function openEventForm(sid,type,date){
     } else {
       const h=num($("fH").value); if(!(h>0)){ $("fHint").textContent="Укажите длительность."; return; }
       ev.hours=h; ev.time=$("fTime").value; ev.price=s.price>0?s.price:null;
+      if($("fTrial") && $("fTrial").checked) ev.trial=true;
     }
     change(()=>_add(ev)); closeModal();
   };
@@ -1749,7 +1941,7 @@ function renderDetail(){
   const balTxt = b.balance<0 ? `<span class="neg">долг ${rub(-b.balance)}</span>` : b.balance>0 ? `<span class="pos">аванс ${rub(b.balance)}</span>` : "в расчёте";
   const hist = evs.length ? evs.map(e=>{
     let t="",amt="";
-    if(e.type==="lesson"){ t=(e.slot==="makeup"?"Занятие (перенос)":e.planned?"Занятие":"Доп. занятие")+" · "+fmtH(hoursOf(e,st)); amt="−"+rub(costOf(e,st)); }
+    if(e.type==="lesson"){ t=(e.trial?"Пробное занятие":e.slot==="makeup"?"Занятие (перенос)":e.planned?"Занятие":"Доп. занятие")+" · "+fmtH(hoursOf(e,st)); amt=e.trial?"бесплатно":"−"+rub(costOf(e,st)); }
     else if(e.type==="payment"){ t="Оплата"; amt="+"+rub(e.amount); }
     else if(e.type==="skip"){ t="Каникулы / выходной"; }
     else if(e.type==="moved"){ t = e.toDate ? "Перенос на "+fmtDate(e.toDate)+(e.toTime?" "+e.toTime:"") : "Перенос — дата не назначена"; }
@@ -1784,7 +1976,7 @@ function renderDetail(){
       <div><b>${rub(m.paid)}</b><span>получено оплат</span></div>
     </div>
     <div>${hist}</div>
-    <div class="foot"><button class="secondary" type="button" id="dTpl">Шаблоны сообщений</button><button class="secondary" type="button" id="dEdit">Настройки</button><button class="primary" type="button" id="dClose">Готово</button></div>`;
+    <div class="foot"><button class="secondary" type="button" id="dTpl">Шаблоны сообщений</button><button class="secondary" type="button" id="dEdit">Настройки</button><button class="primary" type="button" id="dClose">Закрыть</button></div>`;
   $("mPrev").onclick=()=>{detailMonth=shiftMonth(detailMonth,-1);pendingDelete=null;renderDetail();};
   $("mNext").onclick=()=>{detailMonth=shiftMonth(detailMonth,1);pendingDelete=null;renderDetail();};
   $("dClose").onclick=closeModal;
@@ -1819,6 +2011,7 @@ function openStudentForm(sid){
       <div><label for="sContractNo">Договор №</label><input id="sContractNo" value="${esc(st.contractNo||"")}" placeholder="без договора — пусто"></div>
       <div><label for="sContractDate">Дата договора</label><input type="date" id="sContractDate" value="${esc(st.contractDate||"")}"></div>
     </div>
+    <label><input type="checkbox" id="sOneoff" ${st.oneoff?"checked":""} style="width:auto;margin-right:6px">Разовые занятия, без постоянного расписания</label>
     <label>Дни занятий</label>
     <div class="wdpick" id="wdp">${WD_ORDER.map(w=>`<button type="button" data-w="${w}" aria-pressed="${picked.includes(w)}">${WD[w]}</button>`).join("")}</div>
     <div class="hint">Время и разную длительность по дням удобнее задать через «Импорт расписания».</div>
@@ -1868,7 +2061,7 @@ function openStudentForm(sid){
     if(newPrice!==(st.price||0)){ const pf=$("sPriceFrom").value||today(); prices=prices.filter(x=>x.from!==pf).concat([{from:pf,price:newPrice}]).sort((a,b)=>a.from<b.from?-1:1); }
     const pair=$("sPair").value;
     const upd={...st,name,sched,prices,pair,perWeek:picked.length||st.perWeek,price:newPrice,hours:num($("sH").value)||1,mode:$("sMode").value,note:$("sNote").value.trim(),
-      last:$("sLast").value.trim(),group:$("sGroup").value.trim(),payMethod:$("sPayM").value,
+      oneoff:$("sOneoff").checked,last:$("sLast").value.trim(),group:$("sGroup").value.trim(),payMethod:$("sPayM").value,
       contractNo:$("sContractNo").value.trim(),contractDate:$("sContractDate").value,
       grade:$("sGrade").value.trim(),subject:$("sSubject").value.trim(),goal:$("sGoal").value.trim(),
       parent:$("sParent").value.trim(),contact:$("sContact").value.trim(),about:$("sAbout").value.trim()};
@@ -1940,7 +2133,7 @@ function openBackup(){
       ${local?`<button class="primary" type="button" id="bkDl">Скачать файл</button>`:""}
       <button class="${local?"secondary":"primary"}" type="button" id="bkCopy">Скопировать данные</button>
     </div>
-    <div class="foot" style="margin-top:8px"><button class="secondary" type="button" id="bkCsv">Таблица для Excel (CSV)</button></div>
+    <div class="foot" style="margin-top:8px"><button class="secondary" type="button" id="bkCsv">Весь журнал в Excel</button></div>
     <textarea id="bkOut" style="min-height:70px;margin-top:10px" readonly>${esc(data)}</textarea>
     <div class="hint" id="bkHint"></div>
     <h3 style="margin-top:18px;font-size:16px">Восстановить из копии</h3>
@@ -1961,8 +2154,9 @@ function openBackup(){
   };
   $("bkCopy").onclick=()=>copyText($("bkOut"),$("bkHint"),markBackup);
   $("bkCsv").onclick=()=>{
-    const csv=buildCSV();
-    $("bkOut").value=csv; $("bkHint").textContent="Ниже таблица CSV: скачайте файл или скопируйте и вставьте в Excel.";
+    const rows=journalRows();
+    $("bkOut").value=toTSV(rows);
+    saveXLSX("zhurnal-"+today()+".xlsx","Журнал",rows,{widths:[12,24,26,9,13,14,32],money:[4,5],ints:[]},$("bkHint"));
     try{
       const blob=new Blob(["\ufeff"+csv],{type:"text/csv;charset=utf-8"});
       const a=document.createElement("a"); a.href=URL.createObjectURL(blob);
@@ -1994,54 +2188,120 @@ function openBackup(){
   };
 }
 
-function buildRegistry(key){
-  const q=v=>'"'+String(v??"").replace(/"/g,'""')+'"';
-  const rows=[["Ученик","Группа","Договор","Занятий","Часов","Начислено, ₽","Получено, ₽","Долг/аванс, ₽","Способ оплаты","Статус"]];
-  payCheck(key).forEach(r=>{
-    const m=monthStats(r.st,key);
-    rows.push([fullName(r.st),r.st.group||"",[r.st.contractNo||"",r.st.contractDate||""].filter(Boolean).join(" от "),
-      m.held,String(m.heldH).replace(".",","),Math.round(r.need),Math.round(r.got),Math.round(r.bal),
-      PAYM[r.st.payMethod]||"", {none:"не оплачено",part:"частично",ok:"оплачено",empty:"занятий нет"}[r.status]]);
+/* --- минимальный генератор .xlsx без библиотек --- */
+function xlsxBytes(sheetName, rows, opts){
+  opts=opts||{};
+  const widths=opts.widths||[], money=new Set(opts.money||[]), ints=new Set(opts.ints||[]);
+  const esc=v=>String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+  const colName=n=>{ let s=""; n++; while(n>0){ const r=(n-1)%26; s=String.fromCharCode(65+r)+s; n=Math.floor((n-1)/26);} return s; };
+  const cols = widths.length ? "<cols>"+widths.map((w,i)=>`<col min="${i+1}" max="${i+1}" width="${w}" customWidth="1"/>`).join("")+"</cols>" : "";
+  const body = rows.map((row,ri)=>{
+    const cells=row.map((v,ci)=>{
+      const ref=colName(ci)+(ri+1);
+      if(ri===0) return `<c r="${ref}" s="1" t="inlineStr"><is><t>${esc(v)}</t></is></c>`;
+      if(typeof v==="number" && isFinite(v)){
+        const st = money.has(ci) ? 2 : (ints.has(ci) ? 4 : 3);
+        return `<c r="${ref}" s="${st}"><v>${v}</v></c>`;
+      }
+      return `<c r="${ref}" s="3" t="inlineStr"><is><t>${esc(v)}</t></is></c>`;
+    }).join("");
+    return `<row r="${ri+1}"${ri===0?' ht="24" customHeight="1"':''}>${cells}</row>`;
+  }).join("");
+  const lastCol=colName(Math.max(0,(rows[0]||[]).length-1));
+  const sheet=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="15"/>${cols}<sheetData>${body}</sheetData><autoFilter ref="A1:${lastCol}1"/></worksheet>`;
+  const styles=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="2"><numFmt numFmtId="164" formatCode="#,##0&quot; ₽&quot;"/><numFmt numFmtId="165" formatCode="0.##"/></numFmts><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><color rgb="FFFFFFFF"/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF2B5C8A"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color rgb="FFD5DDE5"/></left><right style="thin"><color rgb="FFD5DDE5"/></right><top style="thin"><color rgb="FFD5DDE5"/></top><bottom style="thin"><color rgb="FFD5DDE5"/></bottom><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="5"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf><xf numFmtId="164" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1"/><xf numFmtId="165" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1"/><xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles><dxfs count="0"/><tableStyles count="0" defaultTableStyle="TableStyleMedium2" defaultPivotStyle="PivotStyleLight16"/></styleSheet>`;
+  const files=[
+    ["[Content_Types].xml",`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>`],
+    ["_rels/.rels",`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`],
+    ["xl/workbook.xml",`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="${esc(sheetName).slice(0,31)}" sheetId="1" r:id="rId1"/></sheets></workbook>`],
+    ["xl/_rels/workbook.xml.rels",`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`],
+    ["xl/styles.xml",styles],
+    ["xl/worksheets/sheet1.xml",sheet]
+  ];
+  /* zip (store) */
+  const enc=new TextEncoder();
+  const table=(()=>{ const t=new Uint32Array(256); for(let i=0;i<256;i++){ let c=i; for(let k=0;k<8;k++) c=(c&1)?(0xEDB88320^(c>>>1)):(c>>>1); t[i]=c>>>0; } return t; })();
+  const crc32=buf=>{ let c=0xFFFFFFFF; for(let i=0;i<buf.length;i++) c=table[(c^buf[i])&0xFF]^(c>>>8); return (c^0xFFFFFFFF)>>>0; };
+  const parts=[], central=[]; let offset=0;
+  const u16=n=>[n&255,(n>>8)&255], u32=n=>[n&255,(n>>8)&255,(n>>16)&255,(n>>>24)&255];
+  files.forEach(([name,content])=>{
+    const nameB=enc.encode(name), data=enc.encode(content), crc=crc32(data);
+    const local=[].concat([80,75,3,4],u16(20),u16(0),u16(0),u16(0),u16(0),u32(crc),u32(data.length),u32(data.length),u16(nameB.length),u16(0));
+    parts.push(new Uint8Array(local),nameB,data);
+    central.push([].concat([80,75,1,2],u16(20),u16(20),u16(0),u16(0),u16(0),u16(0),u32(crc),u32(data.length),u32(data.length),u16(nameB.length),u16(0),u16(0),u16(0),u16(0),u32(0),u32(offset)),nameB);
+    offset+=local.length+nameB.length+data.length;
   });
-  return rows.map(r=>r.map(q).join(";")).join("\r\n");
-}
-function openRegistry(key){
-  detailSid=null;
-  const csv=buildRegistry(key);
-  openModal(`<h3>Реестр за ${monthLabel(key)}</h3>
-    <div class="hint" style="margin-top:-6px">Таблица для Excel: начисления, оплаты, долги, договоры.</div>
-    <textarea id="rgOut" style="min-height:160px" readonly>${esc(csv)}</textarea>
-    <div class="hint" id="rgHint"></div>
-    <div class="foot"><button class="secondary" type="button" id="rgClose">Закрыть</button>
-      <button class="secondary" type="button" id="rgDl">Скачать CSV</button>
-      <button class="primary" type="button" id="rgCopy">Скопировать</button></div>`);
-  $("rgClose").onclick=closeModal;
-  $("rgCopy").onclick=()=>copyText($("rgOut"),$("rgHint"));
-  $("rgDl").onclick=()=>{
-    try{
-      const blob=new Blob(["\ufeff"+csv],{type:"text/csv;charset=utf-8"});
-      const a=document.createElement("a"); a.href=URL.createObjectURL(blob);
-      a.download="reestr-"+key+".csv"; document.body.appendChild(a); a.click();
-      setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},1000);
-      $("rgHint").textContent="Файл сохранён в «Загрузки».";
-    }catch(e){ $("rgHint").textContent="Не удалось скачать — скопируйте текст."; }
-  };
+  const cdParts=[]; let cdLen=0;
+  for(let i=0;i<central.length;i+=2){ const a=new Uint8Array(central[i]), b=central[i+1]; cdParts.push(a,b); cdLen+=a.length+b.length; }
+  const eocd=new Uint8Array([].concat([80,75,5,6],u16(0),u16(0),u16(files.length),u16(files.length),u32(cdLen),u32(offset),u16(0)));
+  const all=parts.concat(cdParts,[eocd]);
+  const total=all.reduce((a,x)=>a+x.length,0), out=new Uint8Array(total);
+  let pos=0; all.forEach(x=>{ out.set(x,pos); pos+=x.length; });
+  return out;
 }
 
-function buildCSV(){
-  const q=v=>'"'+String(v??"").replace(/"/g,'""')+'"';
+function saveXLSX(name, sheet, rows, opts, hintEl){
+  try{
+    const bytes=xlsxBytes(sheet, rows, opts);
+    const blob=new Blob([bytes],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+    const a=document.createElement("a"); a.href=URL.createObjectURL(blob);
+    a.download=name; document.body.appendChild(a); a.click();
+    setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},1500);
+    if(hintEl) hintEl.textContent="Файл "+name+" сохранён в «Загрузки» — откройте двойным щелчком.";
+  }catch(e){ if(hintEl) hintEl.innerHTML='<span class="warn">Не удалось сохранить файл. Скопируйте таблицу кнопкой рядом.</span>'; }
+}
+
+function registryRows(key){
+  const rows=[["Ученик","Группа","Договор","Занятий","Часов","Начислено, ₽","Получено, ₽","Долг / аванс, ₽","Способ оплаты","Статус"]];
+  const tot=[0,0,0,0,0];
+  payCheck(key).forEach(r=>{
+    const m=monthStats(r.st,key);
+    tot[0]+=m.held; tot[1]+=m.heldH; tot[2]+=r.need; tot[3]+=r.got; tot[4]+=r.bal;
+    rows.push([fullName(r.st),r.st.group||"",[r.st.contractNo||"",r.st.contractDate||""].filter(Boolean).join(" от "),
+      m.held,+m.heldH.toFixed(2),Math.round(r.need),Math.round(r.got),Math.round(r.bal),
+      PAYM[r.st.payMethod]||"", {none:"не оплачено",part:"частично",ok:"оплачено",empty:"занятий нет"}[r.status]]);
+  });
+  rows.push(["ИТОГО","","",tot[0],+tot[1].toFixed(2),Math.round(tot[2]),Math.round(tot[3]),Math.round(tot[4]),"",""]);
+  return rows;
+}
+const REG_OPTS={widths:[24,16,18,10,9,15,15,16,16,14],money:[5,6,7],ints:[3]};
+const toCSV = rows => rows.map(r=>r.map(v=>'"'+String(v??"").replace(/"/g,'""')+'"').join(";")).join("\r\n");
+const toTSV = rows => rows.map(r=>r.map(v=>String(v??"").replace(/[\t\r\n]+/g," ")).join("\t")).join("\n");
+function openRegistry(key){
+  detailSid=null;
+  const rows=registryRows(key), csv=toCSV(rows), tsv=toTSV(rows);
+  openModal(`<h3>Реестр за ${monthLabel(key)}</h3>
+    <div class="hint" style="margin-top:-6px">Готовый файл Excel: шапка, границы, формат рублей, фильтры и строка «Итого».</div>
+    <textarea id="rgOut" style="min-height:160px" readonly>${esc(tsv)}</textarea>
+    <div class="hint" id="rgHint">«Скопировать для Excel» — вставляется сразу по столбцам, ничего настраивать не нужно.</div>
+    <div class="foot"><button class="secondary" type="button" id="rgClose">Закрыть</button>
+      <button class="secondary" type="button" id="rgXl">Скачать Excel</button>
+      <button class="primary" type="button" id="rgCopy">Скопировать для Excel</button></div>`);
+  $("rgClose").onclick=closeModal;
+  $("rgCopy").onclick=()=>{ $("rgOut").value=tsv; copyText($("rgOut"),$("rgHint")); };
+  $("rgXl").onclick=()=>saveXLSX("reestr-"+key+".xlsx","Реестр "+monthLabel(key),rows,REG_OPTS,$("rgHint"));
+}
+
+function journalRows(){
   const TYPES={lesson:"занятие",payment:"оплата",skip:"каникулы",moved:"перенос",makeup:"перенесённое занятие",cancel:"отмена"};
   const rows=[["Дата","Ученик","Тип","Часы","Ставка, ₽","Сумма, ₽","Заметка"]];
   allEvents().slice().sort((a,b)=>a.date<b.date?-1:1).forEach(e=>{
     const st=students.find(x=>x.id===e.sid)||{name:"?"};
     let type=TYPES[e.type]||e.type, sum="";
+    if(e.trial) type="пробное занятие";
     if(e.type==="payment") sum=Math.round(+e.amount||0);
     else { const c=costOf(e,st); if(c) sum=Math.round(c); }
     if(e.type==="cancel") type += e.status==="charged" ? " с оплатой" : e.status==="free" ? " без оплаты" : " без решения";
     if(e.type==="moved") type += e.toDate ? " на "+e.toDate : " (дата не назначена)";
-    rows.push([e.date,st.name,type,e.type==="payment"?"":(e.hours||1),e.type==="payment"?"":(e.price||st.price||""),sum,e.comment||""]);
+    rows.push([e.date,fullName(st),type,e.type==="payment"?"":(+(e.hours||1)),e.type==="payment"?"":(+(e.price||st.price||0)),sum===""?0:sum,e.comment||""]);
   });
-  return rows.map(r=>r.map(q).join(";")).join("\r\n");
+  return rows;
 }
 
 /* ---------- import ---------- */
@@ -2080,7 +2340,7 @@ function openImport(){
     <div class="hint" style="margin-top:0">Одна строка — один ученик: <b>Имя: Вт 16:00-18:00, Чт 17:00</b> (или <b>Вт 16:00 2ч</b>). Без длительности берётся «обычно часов». Строка <b>с 01.09.2026</b> — дата начала. <b>Имя: нет</b> убирает ученика.</div>
     <textarea id="impText" style="min-height:200px" placeholder="с 01.09.2026&#10;Арина: Вт 16:00-17:00"></textarea>
     <div id="impPrev" class="hint"></div>
-    <div class="foot"><button class="secondary" type="button" id="impClose">Закрыть</button><button class="secondary" type="button" id="impCheck">Проверить</button><button class="primary" type="button" id="impApply" disabled>Применить</button></div>`);
+    <div class="foot"><button class="secondary" type="button" id="impClose">Отмена</button><button class="secondary" type="button" id="impCheck">Проверить</button><button class="primary" type="button" id="impApply" disabled>Применить</button></div>`);
   let parsed=null;
   const check=()=>{
     parsed=parseImport($("impText").value);
@@ -2110,6 +2370,16 @@ function openImport(){
   };
 }
 
+if(typeof module!=="undefined" && module.exports){
+  module.exports={_t:{
+    set:(st,mo)=>{ students=st; normStudents(); months=mo||{}; },
+    students:()=>students, months:()=>months,
+    slotsOn, slotStatus, groupSlots, markDone, markDay, undoSlot, findEv,
+    costOf, balanceOf, monthStats, planOf, rateAt, payCheck, registryRows, journalRows,
+    monthPulse, freeSlots, reportDue, reportPeriodFor, parentText, tplText, fullName,
+    xlsxBytes, change, add:_add, set_:_set, del:_del, uid, today, addDays
+  }};
+}
 init();
 })();
 </script>
