@@ -1261,32 +1261,37 @@ function payCheck(key){
     /* что было на начало месяца: аванс (+) или долг (−) с прошлых месяцев */
     const carry=Math.round(balanceOf(st,addDays(key+"-01",-1)).balance);
     const left=Math.max(0,Math.round(need-carry-got));
-    const status = need<=0 && got<=0 && carry>=0 ? "empty" : left<=0 ? "ok" : (got>0||carry>0) ? "part" : "none";
-    return {st,need,got,bal,carry,left,status};
+    /* долг — только за уже проведённые занятия; остальное по плану месяца — ожидаемая оплата */
+    const owed=Math.min(left,Math.max(0,Math.round(-bal)));
+    const wait=left-owed;
+    const status = need<=0 && got<=0 && carry>=0 ? "empty" : left<=0 ? "ok" : owed>0 ? ((got>0||carry>0) ? "part" : "none") : "wait";
+    return {st,need,got,bal,carry,left,owed,wait,status};
   }).sort((a,b)=>{
-    const ord={none:0,part:1,ok:2,empty:3};
+    const ord={none:0,part:1,wait:2,ok:3,empty:4};
     return ord[a.status]-ord[b.status] || fullName(a.st).localeCompare(fullName(b.st));
   });
 }
 function viewPayCheck(key){
   const rows=payCheck(key);
   if(!rows.length) return "";
-  const LBL={none:'<span class="st-status cancel">не оплатил</span>',part:'<span class="st-status open">частично</span>',ok:'<span class="st-status done">оплачено</span>',empty:'<span class="st-status skip">занятий нет</span>'};
+  const LBL={none:'<span class="st-status cancel">не оплатил</span>',part:'<span class="st-status open">частично</span>',ok:'<span class="st-status done">оплачено</span>',wait:'<span class="st-status skip">ждём оплату</span>',empty:'<span class="st-status skip">занятий нет</span>'};
   const unpaid=rows.filter(r=>r.status==="none"||r.status==="part");
-  const debt=unpaid.reduce((a,r)=>a+r.left,0);
+  const debt=unpaid.reduce((a,r)=>a+r.owed,0);
+  const waiting=rows.filter(r=>r.wait>0), waitSum=waiting.reduce((a,r)=>a+r.wait,0);
   return `<div class="sheet box"><h2>Сверка оплат · ${monthLabel(key)}</h2>
     <div class="hint" style="margin-top:0">Откройте выписку из банка и внесите каждую оплату кнопкой «+ Оплата». Строка станет «оплачено», когда сумма сойдётся.</div>
     <div class="kpi">
       <div><b>${rows.filter(r=>r.status==="ok").length}</b><span>оплатили</span></div>
       <div><b>${unpaid.length}</b><span>${plural(unpaid.length,"должник","должника","должников")}</span></div>
-      <div><b>${rub(debt)}</b><span>не получено</span></div>
+      <div><b>${rub(debt)}</b><span>долг за проведённые</span></div>
       <div><b>${rub(rows.reduce((a,r)=>a+r.got,0))}</b><span>получено за месяц</span></div>
     </div>
+    ${waitSum>0?`<div class="hint">Ещё ждём оплату за месяц вперёд: ${waiting.map(r=>esc(fullName(r.st))).join(", ")} — ${rub(waitSum)}. Это не долг: занятия ещё впереди.</div>`:""}
     ${rows.map(r=>`<div class="prow"><div class="who"><b>${esc(fullName(r.st))}</b>
-      <small>${r.st.group?esc(r.st.group)+" · ":""}${r.st.payMethod?PAYM[r.st.payMethod]+" · ":""}${r.st.mode==="month"?"за месяц":"начислено"} ${rub(r.need)}${r.carry>0?` · было оплачено вперёд ${rub(r.carry)}`:r.carry<0?` · долг с прошлых месяцев ${rub(-r.carry)}`:""} · получено ${rub(r.got)}${r.left>0?` · <b class="neg">осталось ${rub(r.left)}</b>`:""}</small></div>
+      <small>${r.st.group?esc(r.st.group)+" · ":""}${r.st.payMethod?PAYM[r.st.payMethod]+" · ":""}${r.st.mode==="month"?"за месяц":"начислено"} ${rub(r.need)}${r.carry>0?` · было оплачено вперёд ${rub(r.carry)}`:r.carry<0?` · долг с прошлых месяцев ${rub(-r.carry)}`:""} · получено ${rub(r.got)}${r.owed>0?` · <b class="neg">долг ${rub(r.owed)}</b>`:""}${r.wait>0?` · ждём ${rub(r.wait)} за месяц вперёд`:""}</small></div>
       <div class="btns">${LBL[r.status]}
         <button class="sm done" type="button" data-q="payment" data-sid="${r.st.id}">+ Оплата</button>
-        ${(r.status==="none"||r.status==="part")?`<button class="sm" type="button" data-tpl="${r.st.id}">Напомнить</button>`:""}
+        ${(r.status==="none"||r.status==="part"||r.status==="wait")?`<button class="sm" type="button" data-tpl="${r.st.id}">Напомнить</button>`:""}
       </div></div>`).join("")}
     <div class="btns" style="margin-top:10px"><button class="sm" type="button" data-registry="${key}">Реестр оплат для Excel</button></div>
   </div>`;
@@ -2528,7 +2533,7 @@ function registryRows(key){
     tot[0]+=m.plan; tot[1]+=m.held; tot[2]+=m.heldH; tot[3]+=r.need; tot[4]+=r.got; tot[5]+=left; tot[6]+=r.carry;
     rows.push([fullName(r.st),r.st.group||"",[r.st.contractNo||"",r.st.contractDate||""].filter(Boolean).join(" от "),
       m.plan,m.held,+m.heldH.toFixed(2),Math.round(r.need),r.carry,Math.round(r.got),Math.round(left),
-      PAYM[r.st.payMethod]||"", {none:"не оплачено",part:"частично",ok:"оплачено",empty:"занятий нет"}[r.status]]);
+      PAYM[r.st.payMethod]||"", {none:"не оплачено",part:"частично",wait:"ждём оплату за месяц",ok:"оплачено",empty:"занятий нет"}[r.status]]);
   });
   rows.push(["ИТОГО","","",tot[0],tot[1],+tot[2].toFixed(2),Math.round(tot[3]),Math.round(tot[6]),Math.round(tot[4]),Math.round(tot[5]),"",""]);
   return rows;

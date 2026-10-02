@@ -162,6 +162,7 @@ console.log("\n13. Сверка учитывает аванс и долг с п�
     S({id:"k",name:"Катя",price:1200,mode:"after",sched:sch([5],"16:00",1)}),
     S({id:"a",name:"Саша",price:1000,mode:"month",sched:sch([2],"17:00",1.5,"2026-10-01")}),
     S({id:"v",name:"Вера",price:1500,mode:"after",sched:sch([4],"17:00",1)}),
+    S({id:"g",name:"Глеб",price:1200,mode:"month",sched:sch([6],"12:00",1,"2026-10-01")}),
   ],{
     "2026-09":[{id:"kp",sid:"k",type:"payment",date:"2026-09-10",amount:5000},
                {id:"ap",sid:"a",type:"payment",date:"2026-09-28",amount:6000},
@@ -172,6 +173,7 @@ console.log("\n13. Сверка учитывает аванс и долг с п�
   eq("Катя заплатила 5000 в сентябре — в октябре не должница", pc["Катя"].status, "ok");
   eq("Саша оплатил октябрь заранее (6000 в сентябре) — не должник", pc["Саша"].status, "ok");
   eq("Вера должна и за сентябрь, и за октябрь", [pc["Вера"].status, pc["Вера"].left], ["none", 3000]);
+  eq("Глеб платит за месяц вперёд, занятий ещё не было — «ждём оплату», а не долг", [pc["Глеб"].status, pc["Глеб"].owed, pc["Глеб"].wait], ["wait", 0, 5*1200]);
   eq("в сверке ровно одна должница", T.payCheck("2026-10").filter(r=>r.status==="none"||r.status==="part").length, 1);
   const rows=T.registryRows("2026-10"), h=rows[0];
   const kat=rows.find(r=>r[0]==="Катя");
