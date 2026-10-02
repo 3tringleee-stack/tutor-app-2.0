@@ -1,0 +1,14 @@
+{
+  "name": "tabel",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Табель — учёт занятий и оплат для репетитора",
+  "scripts": {
+    "test": "node tests.js && node tests-sync.js",
+    "test:e2e": "node tests-e2e.js",
+    "test:all": "node tests.js && node tests-sync.js && node tests-e2e.js"
+  },
+  "devDependencies": {
+    "playwright": "^1.48.0"
+  }
+}

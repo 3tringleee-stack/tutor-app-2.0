@@ -135,13 +135,25 @@ console.log("\n10. Выгрузка Excel");
   const rows=[["A","B"],["текст",1500]];
   const bytes=T.xlsxBytes("Лист",rows,{widths:[10,10],money:[1]});
   eq("файл начинается с сигнатуры PK", [bytes[0],bytes[1]], [80,75]);
-  require("fs").writeFileSync("/home/claude/out.xlsx",Buffer.from(bytes));
-  console.log("  → /home/claude/out.xlsx записан,",bytes.length,"байт");
+  const out=require("path").join(__dirname,"proverka.xlsx");
+  require("fs").writeFileSync(out,Buffer.from(bytes));
+  console.log("  → файл proverka.xlsx записан рядом с тестом,",bytes.length,"байт");
 }
 
 console.log("\n11. Период отчёта");
 {
   eq("при настройке «1-го числа» отчёт за прошлый месяц", T.reportPeriodFor("2026-10"), "2026-09");
+}
+
+console.log("\n12. Занятие 45 минут и отчёт родителю с датами");
+{
+  T.set([{id:"s1",name:"Вера",price:1600,hours:0.75,sched:[],archived:false}],{"2026-10":[
+    {id:"a",sid:"s1",type:"lesson",date:"2026-10-06",hours:0.75,price:1600,comment:"дроби"},
+    {id:"b",sid:"s1",type:"lesson",date:"2026-10-02",hours:1.25,price:1600}]});
+  const st=T.students()[0], txt=T.parentText(st,"2026-10");
+  eq("45 минут стоят 1200 ₽", T.costOf(T.months()["2026-10"][0],st), 1200);
+  eq("в отчёте дата и заметка", txt.includes("• 06.10, 45 мин — дроби"), true);
+  eq("в отчёте 1 ч 15 мин, по порядку дат", txt.indexOf("• 02.10, 1 ч 15 мин") < txt.indexOf("• 06.10"), true);
 }
 
 console.log("\n" + (fail? `ПРОВАЛЕНО: ${fail}, пройдено: ${pass}` : `Все проверки пройдены: ${pass}`));
