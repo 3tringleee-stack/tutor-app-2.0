@@ -307,6 +307,15 @@ const otherDays = (() => { const out = []; for (let i = 1; out.length < 4 && i <
     await $("#bkIn").fill(backup); await page.waitForTimeout(80); await $("#bkRestore").click(); await page.waitForTimeout(150);
     await closeModal(); await closeModal(); await tab("today");
     ok("после восстановления Вера и её заметка на месте", (await view()).includes("Вера") && (await view()).includes("дроби"));
+    ok("после восстановления видна плашка «Вернуть как было»", !(await $("#alertNotice").isHidden()) && await $("[data-undorestore]").count() === 1);
+    await $("[data-undorestore]").click(); await page.waitForTimeout(150);
+    ok("«Вернуть как было» возвращает данные до восстановления (Веры снова нет)", !(await view()).includes("Вера"));
+    await $("#meBtn").click(); await $("#setBackup").click();
+    await $("#bkIn").fill('{"students":[{"id":"x"}],"months":{"2026-10":"сломано"}}'); await page.waitForTimeout(60);
+    ok("повреждённая копия не принимается", await $("#bkRestore").isDisabled() && (await text("#bkPrev")).includes("не похоже"));
+    await $("#bkIn").fill(backup); await page.waitForTimeout(80); await $("#bkRestore").click(); await page.waitForTimeout(150);
+    await closeModal(); await closeModal(); await $("[data-alertclose]").click().catch(() => {}); await tab("today");
+    ok("снова восстановили — Вера на месте", (await view()).includes("Вера"));
 
     // ------------------------------------------------------------
     section("14. Импорт расписания текстом");
@@ -359,6 +368,32 @@ const otherDays = (() => { const out = []; for (let i = 1; out.length < 4 && i <
     await page.screenshot({ path: path.join(__dirname, "proverka-oshibka.png") }).catch(() => {});
     console.log("    Снимок экрана в момент ошибки: proverka-oshibka.png");
   }
+
+  try {
+    section("16б. Версия, сбой, смена суток");
+    await page.goto(APP); await page.waitForTimeout(300);
+    await $("#meBtn").click(); await page.waitForTimeout(80);
+    ok("в настройках видна версия и кнопка для автора", (await text("#modal")).includes("Версия 20") && await $("#modal [data-copydiag]").count() === 1);
+    await closeModal();
+    await page.evaluate(() => window.dispatchEvent(new ErrorEvent("error", { message: "тестовая ошибка", filename: "index.html", lineno: 1 })));
+    await page.waitForTimeout(80);
+    ok("при ошибке — плашка «Что-то пошло не так», а не белый экран", (await text("#alertNotice")).includes("Что-то пошло не так") && (await view()).length > 50);
+    const diagLine = await page.evaluate(() => { const b = document.querySelector("#alertNotice [data-copydiag]"); b.click(); return new Promise(r => setTimeout(() => r(b.textContent), 300)); });
+    ok("«Скопировать для автора» срабатывает", /Скопировано|Не получилось/.test(diagLine), diagLine);
+    // смена суток при открытом приложении
+    const ctx2 = await browser.newContext({ viewport: { width: W, height: H }, locale: "ru-RU" });
+    await ctx2.route("**/telegram-web-app.js", r => r.fulfill({ contentType: "application/javascript", body: "" }));
+    const p2 = await ctx2.newPage();
+    await p2.clock.install({ time: new Date(2026, 9, 5, 23, 59, 0) });
+    await p2.goto(APP + "?new"); await p2.waitForTimeout(200);
+    await p2.click("#wizStart"); await p2.fill("#wName", "Ночная"); await p2.click('#wWd [data-w="1"]'); await p2.click('#wWd [data-w="2"]');
+    await p2.click("#wNext"); await p2.fill("#wPrice", "1000"); await p2.click('#wMode [data-m="after"]'); await p2.click("#wNext2"); await p2.click("#wSave");
+    const d1 = await p2.locator("#view h2").filter({ hasText: "Сегодня" }).first().innerText();
+    await p2.clock.runFor(3 * 60 * 1000); await p2.waitForTimeout(100);
+    const d2 = await p2.locator("#view h2").filter({ hasText: "Сегодня" }).first().innerText();
+    ok("после полуночи «Сегодня» само переключилось на новый день", /понедельник/.test(d1) && /вторник/.test(d2), d1 + " → " + d2);
+    await ctx2.close();
+  } catch (e) { fail++; console.log("  ✗ Тест остановился: " + e.message.split("\n")[0]); }
 
   section("17. Ошибки в работе страницы");
   ok("ни одной ошибки JavaScript", errors.length === 0, errors.join(" | "));

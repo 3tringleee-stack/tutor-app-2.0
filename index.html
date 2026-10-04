@@ -314,6 +314,8 @@ textarea{min-height:60px;resize:vertical}
 .sm,.undo{display:inline-flex;align-items:center;justify-content:center;gap:6px}
 .sm .btxt:empty{display:none}
 .notice.info{background:var(--blue-soft);color:var(--ink)}
+.notice.bad{background:color-mix(in srgb,var(--red) 12%,var(--paper));color:var(--ink);font-size:14px}
+.notice.bad .btns{margin-top:8px}
 .notice .btns{margin-top:8px}
 .allrep{border-top:1px solid var(--line);padding:12px 0}
 .allrep:first-of-type{border-top:0}
@@ -410,6 +412,7 @@ textarea{min-height:60px;resize:vertical}
     <div class="pend"><b id="sumPend">0</b><span>не отмечено</span></div>
   </div>
 
+  <div class="sheet notice bad" id="alertNotice" hidden></div>
   <div class="sheet notice info" id="repNotice" hidden></div>
   <div class="sheet notice" id="setupNotice" hidden></div>
   <main id="view"></main>
@@ -555,7 +558,7 @@ const CS_RAW = (TG && TG.CloudStorage && TG.CloudStorage.getKeys) ? TG.CloudStor
 const CS_OK = !!(CS_RAW && (!TG.isVersionAtLeast || TG.isVersionAtLeast("6.9")));
 const CS = CS_OK ? CS_RAW : null;
 let diag = TG ? ("Telegram "+(TG.version||"?")+", "+(TG.platform||"?")+(CS_RAW?(CS_OK?", облако доступно":", облако не поддерживается"):", облака нет")) : "открыто вне Telegram";
-function stamp(t){ const d=new Date(); $("syncState").textContent=t+" · "+pad(d.getHours())+":"+pad(d.getMinutes()); }
+function stamp(t){ if(/^Сохранено|^Загружено|^Обновлено|^Перенесено/.test(t)) hideAlert("save"); const d=new Date(); $("syncState").textContent=t+" · "+pad(d.getHours())+":"+pad(d.getMinutes()); }
 const CHUNK=3500;
 function csSet(name,str){
   return new Promise((res,rej)=>{
@@ -596,36 +599,95 @@ let refreshing=false;
 async function refreshCloud(){
   if(mode!=="cloud" || refreshing || $("back").classList.contains("open")) return;
   refreshing=true;
-  try{
-    await queue;
-    const r=await readCloud();
-    if(!r.st && !Object.keys(r.mo).length) return;
+  queue = queue.then(async()=>{
     const before=JSON.stringify({students,months});
-    if(r.st){ students=r.st; normStudents(); }
-    months={...months,...r.mo};
-    if(JSON.stringify({students,months})!==before){ saveLocal(); render(); stamp("Обновлено из Telegram"); }
-  }catch(e){ console.error(e); }
-  finally{ refreshing=false; }
+    const keys=await csKeys();
+    const names=keys.filter(k=>/^m\d{4}-\d{2}__n$/.test(k)).map(k=>k.slice(1,k.indexOf("__")));
+    await pushStudents();
+    for(const k of new Set(names.concat(Object.keys(months)))) await pushMonth(k);
+    if(JSON.stringify({students,months})!==before) stamp("Обновлено из Telegram");
+  }).catch(e=>console.error(e));
+  try{ await queue; } finally{ refreshing=false; }
 }
 
 /* ---------- storage ---------- */
+const BUILD="2026.10.04";
+const AUTHOR_TG="";   /* ник автора в Telegram без @ — для кнопки «Написать автору» */
 let queue = Promise.resolve();
+
+/* Два устройства. Запоминаем, какими записи были при последней синхронизации (base).
+   При сохранении: изменённое здесь берём отсюда, остальное — из облака. Так телефон
+   и компьютер не затирают отметки друг друга. */
+const hstr=t=>{ let x=0; for(let i=0;i<t.length;i++) x=(x*31+t.charCodeAt(i))|0; return x; };
+let base={}; try{ base=JSON.parse(localStorage.getItem("tutor-base")||"{}")||{}; }catch(e){ base={}; }
+function saveBase(){ if(DEMO) return; try{ localStorage.setItem("tutor-base",JSON.stringify(base)); }catch(e){} }
+function setBase(key,list){ const m={}; (list||[]).forEach(x=>{ if(x&&x.id) m[x.id]=hstr(JSON.stringify(x)); }); base[key]=m; }
+function mergeById(local, remote, b){
+  local=local||[]; remote=remote||[];
+  if(!b) { const ids=new Set(local.map(x=>x.id)); return local.concat(remote.filter(x=>!ids.has(x.id))); }
+  const L=new Map(local.map(x=>[x.id,x])), R=new Map(remote.map(x=>[x.id,x])), out=[];
+  new Set([...R.keys(),...L.keys()]).forEach(id=>{
+    const l=L.get(id), r=R.get(id), known=Object.prototype.hasOwnProperty.call(b,id);
+    const changedHere = l ? (!known || b[id]!==hstr(JSON.stringify(l))) : known;
+    if(changedHere){ if(l) out.push(l); } else if(r) out.push(r);
+  });
+  return out;
+}
+function normList(list){ const keep=students; students=list||[]; normStudents(); const out=students; students=keep; return out; }
+async function pushKey(name, getLocal, setLocal){
+  const raw=await csGet(name);
+  const remote=raw?JSON.parse(raw):[];
+  const local=getLocal();
+  const merged=mergeById(local, name==="st"?normList(remote):remote, raw===null&&!base[name]?null:base[name]);
+  const changedHere=JSON.stringify(merged)!==JSON.stringify(local);
+  setLocal(merged);
+  const written=getLocal(), txt=JSON.stringify(written);
+  if(txt!==raw) await csSet(name, txt);
+  setBase(name, written); saveBase(); saveLocal();
+  if(changedHere) render();
+}
+const pushStudents=()=>pushKey("st",()=>students,v=>{ students=v; normStudents(); });
+const pushMonth=k=>pushKey("m"+k,()=>months[k]||[],v=>{ months[k]=v; });
+
+/* Заметная плашка вверху: сбой сохранения, ошибка, восстановление копии */
+let alertKind="";
+function showAlert(html, kind){ const n=$("alertNotice"); if(!n) return; alertKind=kind||""; n.innerHTML=html+`<button class="small-link" type="button" data-alertclose="1" style="float:right">Скрыть</button>`; n.hidden=false; }
+function hideAlert(kind){ const n=$("alertNotice"); if(!n || (kind && kind!==alertKind)) return; n.hidden=true; alertKind=""; }
+let lastErr="";
+function diagText(){ return `Табель ${BUILD} · ${diag} · хранилище: ${mode} · учеников ${students.length}, записей ${allEvents().length}${lastErr?" · ошибка: "+lastErr:""}`; }
+function reportCrash(msg){
+  lastErr=String(msg||"").slice(0,300);
+  showAlert('<b>Что-то пошло не так.</b> Ваши записи на месте. Если повторяется — отправьте автору техническую строку, в ней нет имён учеников.<div class="btns"><button class="sm done" type="button" data-copydiag="1">Скопировать для автора</button></div>',"crash");
+}
+if(typeof window!=="undefined" && window.addEventListener){
+  window.addEventListener("error",e=>{ if(e && e.message) reportCrash(e.message+(e.filename?" @"+String(e.filename).split("/").pop()+":"+e.lineno:"")); });
+  window.addEventListener("unhandledrejection",e=>reportCrash("promise: "+((e&&e.reason&&e.reason.message)||(e&&e.reason)||"")));
+}
+function copyPlain(t, done){
+  const ok=()=>done&&done(true), fail=()=>{ try{ const ta=document.createElement("textarea"); ta.value=t; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); ta.remove(); ok(); }catch(e){ done&&done(false); } };
+  try{ if(navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(ok,fail); else fail(); }catch(e){ fail(); }
+}
 function enqueue(fn){ queue = queue.then(fn).catch(err=>{ console.error(err); showError(err); }); return queue; }
 function showError(err){
   console.error(err);
-  $("syncState").textContent = (err && err.code==="quota_exceeded") ? "Хранилище заполнено: удалите старые записи." :
-    "Не удалось сохранить в Telegram — копия осталась на этом устройстве. "+diag;
+  const full = err && err.code==="quota_exceeded";
+  $("syncState").textContent = full ? "Хранилище Telegram заполнено." : "Не удалось сохранить в Telegram — копия осталась на этом устройстве.";
+  showAlert(full ? '<b>Хранилище Telegram заполнено.</b> Новые записи пока только на этом устройстве. Сохраните резервную копию и напишите автору.<div class="btns"><button class="sm done" type="button" data-openbackup="1">Сохранить копию</button></div>'
+    : '<b>Не удалось сохранить в Telegram.</b> Записи пока только на этом устройстве — на другом их не будет. Обычно помогает закрыть и снова открыть приложение.<div class="btns"><button class="sm done" type="button" data-openbackup="1">Сохранить копию на всякий случай</button></div>',"save");
 }
-function saveLocal(){ if(DEMO) return; try{ localStorage.setItem(LS_KEY, JSON.stringify({students,months})); }catch(e){ $("syncState").textContent="Не удалось сохранить в браузере"; } }
+function saveLocal(){ if(DEMO) return; try{ localStorage.setItem(LS_KEY, JSON.stringify({students,months})); }catch(e){
+  $("syncState").textContent="Не удалось сохранить в браузере";
+  if(mode==="local") showAlert('<b>Последние записи не сохранились:</b> в браузере закончилось место. Сохраните резервную копию, пока приложение открыто.<div class="btns"><button class="sm done" type="button" data-openbackup="1">Сохранить копию</button></div>',"save");
+} }
 function saveStudents(){
   if(DEMO) return;
-  if(mode==="cloud"){ saveLocal(); return enqueue(()=>csSet("st",JSON.stringify(students)).then(()=>stamp("Сохранено в Telegram"))); }
+  if(mode==="cloud"){ saveLocal(); return enqueue(()=>pushStudents().then(()=>stamp("Сохранено в Telegram"))); }
   if(mode==="db") return enqueue(()=>db.doc("config/students").set({list:students}));
   saveLocal();
 }
 function saveMonth(key){
   if(DEMO) return;
-  if(mode==="cloud"){ saveLocal(); return enqueue(()=>csSet("m"+key,JSON.stringify(months[key]||[])).then(()=>stamp("Сохранено в Telegram"))); }
+  if(mode==="cloud"){ saveLocal(); return enqueue(()=>pushMonth(key).then(()=>stamp("Сохранено в Telegram"))); }
   if(mode==="db") return enqueue(()=>db.doc("months/"+key).set({events:months[key]||[]}));
   saveLocal();
 }
@@ -661,7 +723,7 @@ async function init(){
       $("syncState").textContent="Telegram не отдал данные. Показываю копию с этого устройства, изменения пока сохраняются только здесь. Закройте и откройте приложение заново.";
       render(); return;
     }
-    if(got) saveLocal();
+    if(got){ setBase("st",students); for(const k in months) setBase("m"+k,months[k]); saveBase(); saveLocal(); }
     if(!got){
       const before=JSON.stringify(students);
       loadLocal(); normStudents();
@@ -671,6 +733,7 @@ async function init(){
         try{
           await csSet("st",JSON.stringify(students));
           for(const k in months) await csSet("m"+k,JSON.stringify(months[k]||[]));
+          setBase("st",students); for(const k in months) setBase("m"+k,months[k]); saveBase();
           stamp("Перенесено в Telegram");
         }catch(e){ showError(e); }
       } else stamp("Готово к работе · Telegram");
@@ -911,7 +974,11 @@ function tween(el,to,fmt){
 }
 
 /* ---------- render ---------- */
+let renderedDay="";
+function dayChanged(){ if(renderedDay && today()!==renderedDay && !$("back").classList.contains("open")) render(); }
+if(typeof window!=="undefined" && window.addEventListener) setInterval(dayChanged,60000);
 function render(){
+  renderedDay=today();
   document.querySelectorAll("#tabs button").forEach(b=>b.setAttribute("aria-selected",b.dataset.tab===tab));
   let debt=0,pre=0;
   students.forEach(st=>{ const b=balanceOf(st).balance; if(b<0)debt+=-b; else pre+=b; });
@@ -1534,6 +1601,8 @@ Object.entries(ACCENTS).map(([k,v])=>`<option value="${k}" ${ui.accent===k?"sele
 
       <div class="sheet box" style="margin-top:14px">
         <h2>О приложении</h2>
+        <div class="setrow"><div class="lbl"><b>Версия ${BUILD}</b><span>Нашли ошибку — отправьте автору техническую строку: версия, устройство, число записей. Имён учеников в ней нет.</span></div>
+          <div class="ctl"><button class="sm" type="button" data-copydiag="1">Скопировать</button>${AUTHOR_TG?` <button class="sm done" type="button" data-authorlink="1">Написать автору</button>`:""}</div></div>
         <div class="hint" style="margin-top:0">Настройки оформления хранятся на этом устройстве: на телефоне и компьютере они могут отличаться. Записи о занятиях синхронизируются.</div>
       </div>
     </div>
@@ -1616,6 +1685,11 @@ document.addEventListener("click",e=>{
   const a=t.dataset;
   if(a.tab){ tab=a.tab; if(tab==="rep" && !ui.obRep && active().length){ ui.obRep=true; saveUI(); } render(); }
   else if(a.unarch){ unarchive(a.unarch); }
+  else if(a.alertclose){ hideAlert(); }
+  else if(a.authorlink){ const u="https://t.me/"+AUTHOR_TG; try{ if(TG && TG.openTelegramLink) TG.openTelegramLink(u); else window.open(u,"_blank"); }catch(e){ location.href=u; } }
+  else if(a.openbackup){ openBackup(); }
+  else if(a.undorestore){ undoRestore(); }
+  else if(a.copydiag){ const b=t; copyPlain(diagText(), ok=>{ b.textContent = ok ? "Скопировано — вставьте в чат с автором" : "Не получилось скопировать"; }); }
   else if(a.obhide){ ui.obHide=true; ui.obForce=false; saveUI(); render(); }
   else if(a.done && slotRegistry[a.done]) markDone(slotRegistry[a.done]);
   else if(a.miss && slotRegistry[a.miss]) openMiss(slotRegistry[a.miss]);
@@ -1795,9 +1869,9 @@ function closeModal(){ $("back").classList.remove("open"); detailSid=null; pendi
 if(TG){ try{
   if(TG.BackButton) TG.BackButton.onClick(()=>closeModal());
   if(TG.disableVerticalSwipes) TG.disableVerticalSwipes();
-  if(TG.onEvent) TG.onEvent("activated",()=>refreshCloud());
+  if(TG.onEvent) TG.onEvent("activated",()=>{ dayChanged(); refreshCloud(); });
 }catch(e){} }
-document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible") refreshCloud(); });
+document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible"){ dayChanged(); refreshCloud(); } });
 $("back").addEventListener("click",e=>{ if(e.target.id==="back") closeModal(); });
 document.addEventListener("keydown",e=>{ if(e.key==="Escape") closeModal(); });
 document.addEventListener("toggle",e=>{ const t=e.target; if(t && t.classList && t.classList.contains("arch")){ ui.archOpen=t.open; saveUI(); } },true);
@@ -2463,7 +2537,9 @@ function openBackup(){
     incoming=null; $("bkRestore").disabled=true;
     try{
       const o=JSON.parse(text);
-      if(!o || !Array.isArray(o.students) || typeof o.months!=="object") throw 0;
+      if(!o || !Array.isArray(o.students) || !o.months || typeof o.months!=="object") throw 0;
+      if(o.students.some(x=>!x||!x.id||!x.name)) throw 0;
+      for(const k in o.months){ if(!/^\d{4}-\d{2}$/.test(k) || !Array.isArray(o.months[k]) || o.months[k].some(e=>!e||!e.id||!e.date)) throw 0; }
       incoming=o;
       $("bkPrev").innerHTML=`Найдено: учеников ${o.students.filter(x=>!x.archived).length}, записей ${Object.values(o.months).flat().length}${o.exported?", копия от "+esc(o.exported.slice(0,10)):""}.`;
       $("bkRestore").disabled=false;
@@ -2473,13 +2549,26 @@ function openBackup(){
   $("bkFile").onchange=()=>{ const f=$("bkFile").files[0]; if(!f) return; const r=new FileReader(); r.onload=()=>{ $("bkIn").value=r.result; check(r.result); }; r.readAsText(f); };
   $("bkRestore").onclick=()=>{
     if(!incoming) return;
-    const oldKeys=Object.keys(months);
-    students=incoming.students.map(x=>({...x})); normStudents();
-    months={}; for(const k in incoming.months) months[k]=(incoming.months[k]||[]).map(x=>({...x}));
-    if(mode==="db"||mode==="cloud"){ saveStudents(); new Set(oldKeys.concat(Object.keys(months))).forEach(k=>{ if(!months[k]) months[k]=[]; saveMonth(k); }); }
-    else saveLocal();
+    if(!DEMO) try{ localStorage.setItem("tutor-before-restore",JSON.stringify({at:new Date().toISOString(),students,months})); }catch(e){}
+    replaceAll(incoming.students, incoming.months);
     closeModal(); render();
+    showAlert('<b>Данные заменены резервной копией.</b> Если что-то не так, прежние записи можно вернуть.<div class="btns"><button class="sm" type="button" data-undorestore="1">Вернуть как было</button></div>',"restore");
   };
+}
+
+function replaceAll(st, mo){
+  const oldKeys=Object.keys(months);
+  students=st.map(x=>({...x})); normStudents();
+  months={}; for(const k in mo) months[k]=(mo[k]||[]).map(x=>({...x}));
+  if(mode==="db"||mode==="cloud"){ saveStudents(); new Set(oldKeys.concat(Object.keys(months))).forEach(k=>{ if(!months[k]) months[k]=[]; saveMonth(k); }); }
+  else saveLocal();
+}
+function undoRestore(){
+  let o=null; try{ o=JSON.parse(localStorage.getItem("tutor-before-restore")||"null"); }catch(e){}
+  if(!o || !Array.isArray(o.students)) return;
+  replaceAll(o.students, o.months||{});
+  try{ localStorage.removeItem("tutor-before-restore"); }catch(e){}
+  hideAlert(); render(); stamp("Возвращены данные до восстановления");
 }
 
 /* --- минимальный генератор .xlsx без библиотек --- */
@@ -2680,7 +2769,7 @@ if(typeof module!=="undefined" && module.exports){
     slotsOn, slotStatus, groupSlots, markDone, markDay, undoSlot, findEv,
     costOf, balanceOf, monthStats, planOf, rateAt, payCheck, registryRows, journalRows,
     monthPulse, freeSlots, reportDue, reportPeriodFor, parentText, tplText, fullName,
-    xlsxBytes, change, add:_add, set_:_set, del:_del, uid, today, addDays
+    xlsxBytes, change, add:_add, set_:_set, del:_del, uid, today, addDays, mergeById, hstr
   }};
 }
 init();

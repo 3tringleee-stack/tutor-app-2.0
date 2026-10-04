@@ -181,5 +181,22 @@ console.log("\n13. Сверка учитывает аванс и долг с п�
   eq("реестр: Кате доплачивать нечего", kat[h.indexOf("Осталось оплатить, ₽")], 0);
 }
 
+console.log("\n14. Два устройства: слияние записей без потерь");
+{
+  const H=o=>T.hstr(JSON.stringify(o));
+  const A={id:"a",date:"2026-10-01",type:"lesson",comment:""}, B={id:"b",date:"2026-10-02",type:"lesson",comment:""};
+  const base={a:H(A), b:H(B)};
+  const ids=l=>l.map(e=>e.id).sort().join(",");
+  // телефон добавил C, компьютер ничего не знает о нём и добавил D
+  const C={id:"c",date:"2026-10-03",type:"lesson"}, D={id:"d",date:"2026-10-04",type:"payment",amount:1000};
+  eq("добавленное на обоих устройствах сохраняется", ids(T.mergeById([A,B,D],[A,B,C],base)), "a,b,c,d");
+  eq("удалённое здесь не воскрешается из облака", ids(T.mergeById([B],[A,B],base)), "b");
+  eq("удалённое на другом устройстве не возвращается отсюда", ids(T.mergeById([A,B],[B],base)), "b");
+  const B2={...B,comment:"дроби"};
+  eq("правка с телефона не затирается старой копией компьютера", T.mergeById([A,B],[A,B2],base).find(e=>e.id==="b").comment, "дроби");
+  eq("правка здесь побеждает неизменённую копию в облаке", T.mergeById([A,B2],[A,B],base).find(e=>e.id==="b").comment, "дроби");
+  eq("без истории синхронизации — объединение, ничего не теряется", ids(T.mergeById([A,D],[B,C],null)), "a,b,c,d");
+}
+
 console.log("\n" + (fail? `ПРОВАЛЕНО: ${fail}, пройдено: ${pass}` : `Все проверки пройдены: ${pass}`));
 process.exit(fail?1:0);

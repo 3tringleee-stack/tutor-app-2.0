@@ -22,6 +22,7 @@ if(sc==="fail"){ put("st",mine); put("m2026-10",[{id:"e1",type:"lesson",sid:"s1"
 if(sc==="retry"){ put("st",mine); failReads=1; }
 if(sc==="migrate"){ store["tutor-ledger-v1"]=JSON.stringify({students:mine,months:{"2026-10":[{id:"e1",type:"lesson",sid:"s1",date:"2026-10-01"}]}}); }
 if(sc==="refresh"){ put("st",mine); put("m2026-10",[]); }
+if(sc==="twodev"){ put("st",mine); put("m2026-10",[{id:"a",sid:"s1",type:"lesson",date:"2026-10-01"},{id:"b",sid:"s1",type:"lesson",date:"2026-10-02",comment:""}]); }
 const html=fs.readFileSync(require("path").join(__dirname,"index.html"),"utf8");
 const code=html.slice(html.indexOf("<script>\n(function()")+8,html.lastIndexOf("</script>"));
 const mod={exports:{}}; vm.runInThisContext("(function(module){"+code+"})")(mod);
@@ -41,6 +42,17 @@ setTimeout(async()=>{
     ok((T.months()["2026-10"]||[]).some(e=>e.id==="e9"),"после возврата в приложение видна отметка с другого устройства");
     // модалка
     T.change; 
+  }
+  if(sc==="twodev"){
+    // на телефоне за это время: добавили c и подписали b
+    put("m2026-10",[{id:"a",sid:"s1",type:"lesson",date:"2026-10-01"},{id:"b",sid:"s1",type:"lesson",date:"2026-10-02",comment:"дроби"},{id:"c",sid:"s1",type:"lesson",date:"2026-10-03"}]);
+    // здесь, со старой картиной: удалили a и добавили оплату d
+    T.change(()=>{ T.del("a"); T.add({id:"d",sid:"s1",type:"payment",date:"2026-10-04",amount:1000}); });
+    await new Promise(r=>setTimeout(r,200));
+    const cl=JSON.parse(cloud["m2026-10__0"]).map(e=>e.id).sort().join(",");
+    ok(cl==="b,c,d","в облаке и отметка с телефона, и оплата отсюда, удалённое не вернулось ("+cl+")");
+    ok(JSON.parse(cloud["m2026-10__0"]).find(e=>e.id==="b").comment==="дроби","подпись с телефона не затёрта");
+    ok((T.months()["2026-10"]||[]).some(e=>e.id==="c"),"на этом устройстве появилась отметка с телефона");
   }
   if(sc==="modal"){}
 },2500);
