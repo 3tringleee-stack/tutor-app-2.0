@@ -17,6 +17,7 @@
   --blue:#5B4B8A; --blue-soft:#EFEBF8; --red:#A8405A; --red-soft:#FAEAEE; --green:#3C7A63; --green-soft:#E6F3ED;
   --amber:#9A6A2E; --amber-soft:#FBF1E2;
   --info:#2F6E8F; --info-soft:#E6F0F5;
+  --c-done:#16A34A; --c-due:#E08700; --c-moved:#7C3AED; --c-cancel:#DC2626; --c-plan:#8A8494;
   --r:16px; --r-sm:10px; --shadow:none;
   --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:20px; --s6:24px;
 }
@@ -26,6 +27,7 @@
     --blue:#B3A4E0; --blue-soft:#2C2640; --red:#E8909F; --red-soft:#3B242C; --green:#88C9AE; --green-soft:#1F3730;
     --amber:#DDB278; --amber-soft:#3A2F20;
     --info:#89BAD4; --info-soft:#21333D;
+    --c-done:#34D17A; --c-due:#FFB020; --c-moved:#A78BFA; --c-cancel:#FF5C5C; --c-plan:#CFC8DA;
     --shadow:none;
   }
 }
@@ -34,6 +36,7 @@
   --blue:#B3A4E0; --blue-soft:#2C2640; --red:#E8909F; --red-soft:#3B242C; --green:#88C9AE; --green-soft:#1F3730;
   --amber:#DDB278; --amber-soft:#3A2F20;
   --info:#89BAD4; --info-soft:#21333D;
+    --c-done:#34D17A; --c-due:#FFB020; --c-moved:#A78BFA; --c-cancel:#FF5C5C; --c-plan:#CFC8DA;
   --shadow:none;
 }
 *{box-sizing:border-box}
@@ -180,15 +183,18 @@ details.arch[open] summary::before{transform:rotate(90deg)}
 .day.today{border-color:var(--blue);box-shadow:inset 0 0 0 1.5px var(--blue)}
 .day.sel{background:var(--blue-soft);border-color:transparent}
 .day .n{font-size:13px;font-weight:700}
-.dots{display:flex;flex-wrap:wrap;gap:3px}
-.dot{width:9px;height:9px;border-radius:50%;box-sizing:border-box;flex:none}
-.dot.done{background:var(--green)}
-.dot.open{border:1.5px solid var(--muted);opacity:.55}
-.dot.due{border:2px solid var(--amber);background:var(--amber-soft)}
-.dot.cancel{background:var(--red)}
-.dot.moved{background:var(--blue);border-radius:2px;transform:rotate(45deg) scale(.85)}
-.dot.skip{width:10px;height:3px;border-radius:2px;background:var(--muted);align-self:center;opacity:.7}
+.dots{display:flex;flex-wrap:wrap;gap:4px}
+.dot{width:11px;height:11px;border-radius:50%;box-sizing:border-box;flex:none}
+.dot.done{background:var(--c-done)}
+.dot.open{border:2px solid var(--c-plan);opacity:.6}
+.dot.due{border:3px solid var(--c-due)}
+.dot.cancel{background:var(--c-cancel)}
+.dot.moved{background:var(--c-moved);border-radius:2px;transform:rotate(45deg) scale(.82)}
+.dot.skip{width:12px;height:4px;border-radius:2px;background:var(--c-plan);align-self:center;opacity:.6}
 .dot.pay{background:var(--info);border-radius:2px}
+.day.st-done{background:color-mix(in srgb,var(--c-done) 14%,var(--paper));border-color:color-mix(in srgb,var(--c-done) 45%,var(--line))}
+.day.st-due{background:color-mix(in srgb,var(--c-due) 14%,var(--paper));border-color:color-mix(in srgb,var(--c-due) 55%,var(--line))}
+.day.sel.st-done,.day.sel.st-due{background:var(--blue-soft);border-color:var(--blue)}
 .legend{display:flex;gap:12px;flex-wrap:wrap;font-size:12.5px;color:var(--muted);margin-top:8px}
 .legend span{display:inline-flex;align-items:center;gap:5px}
 /* report */
@@ -1303,8 +1309,10 @@ function viewCal(){
   for(let i=0;i<offset;i++) cells+='<div class="day out"></div>';
   dates.forEach(d=>{
     let dots="";
-    slotsOn(d).forEach(sl=>{ const s=slotStatus(sl); dots+=`<i class="dot ${s==="lesson"?"done":s==="open"&&d<t?"due":s}"></i>`; });
-    cells+=`<button type="button" class="day ${d===t?"today":""} ${d===selDay?"sel":""}" data-day="${d}" aria-label="${fmtDate(d)}"><span class="n">${+d.slice(8)}</span><span class="dots">${dots}</span></button>`;
+    const cls=slotsOn(d).map(sl=>{ const s=slotStatus(sl); return s==="lesson"?"done":s==="open"&&d<t?"due":s; });
+    cls.forEach(c=>{ dots+=`<i class="dot ${c}"></i>`; });
+    const dayCls=cls.includes("due")?"st-due":(cls.includes("done")&&cls.every(c=>c!=="open"))?"st-done":"";
+    cells+=`<button type="button" class="day ${dayCls} ${d===t?"today":""} ${d===selDay?"sel":""}" data-day="${d}" aria-label="${fmtDate(d)}"><span class="n">${+d.slice(8)}</span><span class="dots">${dots}</span></button>`;
   });
   let h = moveGroup ? `<div class="movebar"><span>Выберите новый день для занятия: ${esc(moveGroup.map(x=>x.st.name).join(" и "))}</span><button type="button" data-movecancel="1">Отмена</button></div>` : "";
   h+=`<div class="sheet box"><div class="monthbar"><button class="sm" type="button" data-cm="-1" aria-label="Предыдущий месяц">‹</button><strong>${cap(monthLabel(calMonth))}</strong><button class="sm" type="button" data-cm="1" aria-label="Следующий месяц">›</button></div>
