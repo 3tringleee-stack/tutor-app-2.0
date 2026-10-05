@@ -198,5 +198,26 @@ console.log("\n14. Два устройства: слияние записей б
   eq("без истории синхронизации — объединение, ничего не теряется", ids(T.mergeById([A,D],[B,C],null)), "a,b,c,d");
 }
 
+console.log("\n15. Тексты для родителей — без машинных оборотов");
+{
+  T.set([
+    S({id:"p",name:"Петя",parent:"Ольга",price:1000,mode:"after",sched:sch([1],"17:00",1)}),
+    S({id:"q",name:"Даша",price:1000,mode:"month",sched:sch([2],"17:00",1)}),
+    S({id:"z",name:"Зоя",price:1000,mode:"prepaid",sched:sch([3],"17:00",1)}),
+  ],{"2026-10":[{id:"c1",sid:"q",type:"cancel",status:"charged",planned:true,date:"2026-10-06",time:"17:00",hours:1},
+                {id:"pz",sid:"z",type:"payment",date:"2026-10-01",amount:4000}]});
+  const [P,Q,Z]=T.students();
+  const tp=T.parentText(P,"2026-10"), tq=T.parentText(Q,"2026-10");
+  eq("месяц без занятий: «занятий не было», без «0 занятий»", tp.includes("в октябре занятий не было") && !/\b0 занятий/.test(tp), true);
+  eq("только отмена с оплатой: «Итого за месяц», без «0 занятий, 0 ч»", /Итого за месяц: 1\s000/.test(tq) && !/(^|\D)0 ч/.test(tq), true);
+  eq("обращение к родителю по имени, с новой строки", tp.startsWith("Добрый день, Ольга!\n"), true);
+  eq("отчёт не нужен тому, у кого в месяце ничего не было", T.hasReport(P,"2026-10"), false);
+  eq("отчёт нужен тому, у кого был платёж", !!T.hasReport(Z,"2026-10"), true);
+  eq("приглашение коллеге без «С уважением»", T.tplText("invite",P).includes("С уважением"), false);
+  eq("при авансе не просим оплатить", T.tplText("pay",Z).includes("ничего оплачивать не нужно"), true);
+  eq("в шаблонах нет имени ребёнка в скобках", /\(Петя\)/.test(T.tplText("remind",P)+T.tplText("move",P)), false);
+  eq("договор в реестре: «№ 12 от 01.09.2026»", T.contractStr({contractNo:"12",contractDate:"2026-09-01"}), "№ 12 от 01.09.2026");
+}
+
 console.log("\n" + (fail? `ПРОВАЛЕНО: ${fail}, пройдено: ${pass}` : `Все проверки пройдены: ${pass}`));
 process.exit(fail?1:0);

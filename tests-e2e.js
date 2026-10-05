@@ -117,6 +117,11 @@ const otherDays = (() => { const out = []; for (let i = 1; out.length < 4 && i <
     // ------------------------------------------------------------
     section("4. Правка времени и длительности до отметки");
     await wizard({ name: "Катя", days: [0, 1, 2, 3, 4, 5, 6], time: "15:00", hours: 1, price: 1000, mode: "after" });
+    ok("новый ученик начинает с сегодняшнего дня — без «хвоста» неотмеченных", !(await view()).includes("Отметьте прошедшие занятия"));
+    // Катя занимается с начала месяца: ставим расписание задним числом через редактор
+    { const kid = ((await data()).students || []).find(s => s.name === "Катя").id;
+      await tab("st"); await $(`[data-open="${kid}"]`).click(); await $("#dSched").click();
+      await $("#schFrom").fill(TODAY.slice(0, 8) + "01"); await $("#schSave").click(); await page.waitForTimeout(100); await closeModal(); await tab("today"); }
     await row("Катя").locator("[data-tweak]").click();
     await $('#twChips [data-h="1.5"]').click();
     await $("#twTime").fill("15:30"); await $("#twSave").click(); await page.waitForTimeout(80);
@@ -144,7 +149,7 @@ const otherDays = (() => { const out = []; for (let i = 1; out.length < 4 && i <
     await $("#mvDate").fill(moveTo); await $("#mvTime").fill("19:00"); await $("#mSave").click(); await page.waitForTimeout(80);
     ok(`перенос с датой: «перенесено на ${ddmm(moveTo)}»`, (await rowText("Рома")).includes("перенесено на " + ddmm(moveTo)), await rowText("Рома"));
     await tab("cal"); await $(`[data-day="${moveTo}"]`).click().catch(() => {});
-    if (moveTo.slice(0, 7) === TODAY.slice(0, 7)) ok("перенесённое занятие стоит в календаре на новую дату", (await view()).includes("перенос с " + ddmm(TODAY)), await view());
+    if (moveTo.slice(0, 7) === TODAY.slice(0, 7)) ok("перенесённое занятие стоит в календаре на новую дату", (await view()).includes("перенесено с " + ddmm(TODAY)), await view());
     await tab("today");
 
     // ------------------------------------------------------------
@@ -173,7 +178,7 @@ const otherDays = (() => { const out = []; for (let i = 1; out.length < 4 && i <
     await tab("st");
     await wizard({ name: "Глеб", oneoff: true, price: 2000 });
     await tab("st");
-    ok("разовый ученик без расписания", (await view()).includes("разовые занятия"), await view());
+    ok("ученик без расписания: «по договорённости»", (await view()).includes("по договорённости"), await view());
     await $("#addGroup").click();
     await $("#gName").fill("9 класс"); await $("#gMembers").fill("Иванов Пётр\nСмирнова Аня\nКузнецов Рома");
     await $(`#gWd [data-w="${WD}"]`).click(); await $("#gTime").fill("20:00");
@@ -197,7 +202,7 @@ const otherDays = (() => { const out = []; for (let i = 1; out.length < 4 && i <
     section("9. Отчёт, родителю, сверка, Excel");
     await tab("rep");
     v = await view();
-    ok("отчёт за месяц открыт", v.includes("Отчёт:"), v.slice(0, 100));
+    ok("отчёт за месяц открыт", v.includes("Отчёт за "), v.slice(0, 100));
     await $(`[data-msg="${st[0].id}"]`).click();
     const pm = await $("#pm").inputValue();
     ok("текст родителю: обращение по имени", pm.includes("Ольга"), pm);
@@ -269,7 +274,7 @@ const otherDays = (() => { const out = []; for (let i = 1; out.length < 4 && i <
     const gleb = ((await data()).students || []).find(s => s.name === "Глеб");
     await $(`[data-q="lesson"][data-sid="${gleb.id}"]`).click();
     await $("#fDate").fill(tomorrow); await $("#fDate").dispatchEvent("change");
-    ok("галочка называет день недели: «Каждую неделю: …»", (await text("#fRepeatTxt")).includes("Каждую неделю:"), await text("#fRepeatTxt"));
+    ok("галочка называет день недели: «Повторять каждый …»", /Повторять кажд(ый|ую|ое) /.test(await text("#fRepeatTxt")), await text("#fRepeatTxt"));
     await $("#fRepeat").check(); await $("#fTime").fill("12:00"); await $("#fSave").click(); await page.waitForTimeout(100);
     const g2 = ((await data()).students || []).find(s => s.name === "Глеб"), gp = g2.sched[g2.sched.length - 1];
     const tw = new Date(tomorrow + "T12:00:00").getDay();
@@ -279,7 +284,7 @@ const otherDays = (() => { const out = []; for (let i = 1; out.length < 4 && i <
     await $("#freeBtn").click(); await page.waitForTimeout(80);
     const fw = await text("#fwBody");
     ok("окна подобраны, занятое время не предлагается", /\d\d:\d\d/.test(fw), fw.slice(0, 200));
-    ok("текст для родителя готов", (await $("#fwText").inputValue()).includes("Здравствуйте"));
+    ok("текст для родителя готов", (await $("#fwText").inputValue()).includes("Добрый день"));
     await closeModal();
 
     // ------------------------------------------------------------
@@ -312,7 +317,7 @@ const otherDays = (() => { const out = []; for (let i = 1; out.length < 4 && i <
     ok("«Вернуть как было» возвращает данные до восстановления (Веры снова нет)", !(await view()).includes("Вера"));
     await $("#meBtn").click(); await $("#setBackup").click();
     await $("#bkIn").fill('{"students":[{"id":"x"}],"months":{"2026-10":"сломано"}}'); await page.waitForTimeout(60);
-    ok("повреждённая копия не принимается", await $("#bkRestore").isDisabled() && (await text("#bkPrev")).includes("не похоже"));
+    ok("повреждённая копия не принимается", await $("#bkRestore").isDisabled() && (await text("#bkPrev")).includes("не резервная копия"));
     await $("#bkIn").fill(backup); await page.waitForTimeout(80); await $("#bkRestore").click(); await page.waitForTimeout(150);
     await closeModal(); await closeModal(); await $("[data-alertclose]").click().catch(() => {}); await tab("today");
     ok("снова восстановили — Вера на месте", (await view()).includes("Вера"));
@@ -333,8 +338,9 @@ const otherDays = (() => { const out = []; for (let i = 1; out.length < 4 && i <
     await tab("today");
     await row("Катя").locator("[data-edit]").click().catch(() => {});
     if (await modalOpen()) {
+      await page.waitForTimeout(350); // окно выезжает с анимацией 0,18 с
       const box = await $(".modal > .foot:last-child button").last().boundingBox();
-      ok("кнопки окна видны без прокрутки", box && box.y + box.height <= H + 1, JSON.stringify(box));
+            ok("кнопки окна видны без прокрутки", box && box.y + box.height <= H + 1, JSON.stringify(box));
       await closeModal();
     }
     // клавиатура на телефоне: видимая часть экрана уменьшается до 400px
