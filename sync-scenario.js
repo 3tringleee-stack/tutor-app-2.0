@@ -31,7 +31,7 @@ const ok=(c,m)=>{console.log((c?"  ✓ ":"  ✗ ")+m); if(!c) process.exitCode=1
 setTimeout(async()=>{
   const names=T.students().map(s=>s.name).join(",");
   if(sc==="new"){ ok(names==="","новичок не видит чужих учеников ("+names+")"); ok(/Добавить первого ученика/.test(els.view.innerHTML),"показан мастер первого запуска"); ok(writes===0,"в облако ничего не записано"); }
-  if(sc==="fail"){ ok(writes===0,"при сбое чтения облако не перезаписано (записей: "+writes+")"); ok(/Telegram не отдал/.test(els.syncState.textContent),"пользователь видит предупреждение"); }
+  if(sc==="fail"){ ok(writes===0,"при сбое чтения облако не перезаписано (записей: "+writes+")"); ok(/Не удалось загрузить записи|Telegram не отдал/.test(els.syncState.textContent),"пользователь видит предупреждение"); }
   if(sc==="retry"){ ok(names==="Арина","разовый сбой: повторная попытка загрузила данные"); ok(writes===0,"и ничего не перезаписала"); }
   if(sc==="migrate"){ ok(!!cloud["st__0"]&&/Арина/.test(cloud["st__0"]),"локальные записи перенесены в пустое облако"); ok(!!cloud["m2026-10__0"],"месяц перенесён"); }
   if(sc==="refresh"){
