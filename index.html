@@ -582,26 +582,51 @@ const CS = CS_OK ? CS_RAW : null;
 let diag = TG ? ("Telegram "+(TG.version||"?")+", "+(TG.platform||"?")+(CS_RAW?(CS_OK?", облако доступно":", облако не поддерживается"):", облака нет")) : "открыто вне Telegram";
 function stamp(t){ if(/^Сохранено|^Загружено|^Обновлено|^Перенесено/.test(t)) hideAlert("save"); const d=new Date(); $("syncState").textContent=t+" · "+pad(d.getHours())+":"+pad(d.getMinutes()); }
 const CHUNK=3500;
-function csSet(name,str){
-  return new Promise((res,rej)=>{
-    const parts=[]; for(let i=0;i<str.length;i+=CHUNK) parts.push(str.slice(i,i+CHUNK));
-    if(!parts.length) parts.push("");
-    let done=0,err=null;
-    CS.setItem(name+"__n",String(parts.length),()=>{});
-    parts.forEach((p,i)=>CS.setItem(name+"__"+i,p,e=>{ if(e)err=e; if(++done===parts.length){ err?rej(err):res();
-      CS.getKeys((e2,all)=>{ if(!all) return; const pref=name+"__"; const stale=all.filter(k=>k.indexOf(pref)===0 && k!==pref+"n" && +k.slice(pref.length)>=parts.length); if(stale.length) CS.removeItems(stale,()=>{}); });
-    }}));
-  });
+/* Запись в облако Telegram без «полузаписанного» состояния.
+   Сначала все куски новой версии пишутся под новыми ключами (st__g<время>_0, _1…),
+   и только потом переключается указатель st__n = "g:<время>:<кусков>". Если приложение
+   закроют посреди записи, указатель останется на прежней, целой версии.
+   Старый формат (st__n = "3", куски st__0…) читается как раньше. */
+const csCall=(fn,...a)=>new Promise((res,rej)=>fn.call(CS,...a,(e,v)=>e?rej(e):res(v)));
+let genSeq=0;
+function newGen(){ return Date.now().toString(36)+(genSeq++%36).toString(36); }
+function genTime(g){ return parseInt(String(g).slice(0,-1),36)||0; }
+function parsePtr(v){
+  v=String(v||"");
+  const m=v.match(/^g:([0-9a-z]+):(\d+)$/); if(m) return {gen:m[1],n:+m[2]};
+  const n=+v||0; return n?{gen:"",n}:null;
 }
-function csGet(name){
-  return new Promise((res,rej)=>{
-    CS.getItem(name+"__n",(e,v)=>{
-      if(e) return rej(e);
-      const n=+v||0; if(!n) return res(null);
-      const keys=[]; for(let i=0;i<n;i++) keys.push(name+"__"+i);
-      CS.getItems(keys,(e2,map)=>{ if(e2||!map) return rej(e2||"no_data"); let out=""; for(let i=0;i<n;i++){ const part=map[name+"__"+i]; if(part==null) return rej("chunk_missing"); out+=part; } res(out); });
-    });
+const chunkKey=(name,gen,i)=>gen?`${name}__g${gen}_${i}`:`${name}__${i}`;
+async function csSet(name,str){
+  const parts=[]; for(let i=0;i<str.length;i+=CHUNK) parts.push(str.slice(i,i+CHUNK));
+  if(!parts.length) parts.push("");
+  const gen=newGen();
+  await Promise.all(parts.map((p,i)=>csCall(CS.setItem,chunkKey(name,gen,i),p)));
+  await csCall(CS.setItem,name+"__n",`g:${gen}:${parts.length}`);
+  csClean(name,gen).catch(()=>{});
+}
+/* Убрать старые версии. Чужую свежую запись (другое устройство пишет прямо сейчас) не трогаем. */
+async function csClean(name,keep){
+  const all=await csCall(CS.getKeys)||[]; const pref=name+"__";
+  let cur=""; try{ const p=parsePtr(await csCall(CS.getItem,name+"__n")); cur=p&&p.gen||""; }catch(e){ return; }
+  const old=all.filter(k=>{
+    if(k.indexOf(pref)!==0 || k===pref+"n") return false;
+    const rest=k.slice(pref.length);
+    if(/^\d+$/.test(rest)) return !!cur;                       // старый формат — когда уже есть новый
+    const m=rest.match(/^g([0-9a-z]+)_\d+$/); if(!m) return false;
+    if(m[1]===keep || m[1]===cur) return false;
+    return genTime(m[1]) < Date.now()-120000;                  // старше двух минут
   });
+  if(old.length) await csCall(CS.removeItems,old);
+}
+async function csGet(name){
+  const p=parsePtr(await csCall(CS.getItem,name+"__n"));
+  if(!p) return null;
+  const keys=[]; for(let i=0;i<p.n;i++) keys.push(chunkKey(name,p.gen,i));
+  const map=await csCall(CS.getItems,keys);
+  if(!map) throw "no_data";
+  let out=""; for(const k of keys){ const part=map[k]; if(part==null||part==="") throw "chunk_missing"; out+=part; }
+  return out;
 }
 function csKeys(){ return new Promise((res,rej)=>CS.getKeys((e,k)=>e?rej(e):res(k||[]))); }
 async function readCloud(){
@@ -616,6 +641,35 @@ async function readCloudRetry(){
   try{ return await readCloud(); }
   catch(e){ await new Promise(r=>setTimeout(r,1500)); return await readCloud(); }
 }
+/* ---------- автокопии в облаке Telegram ----------
+   Раз в день (при первом открытии) — снимок всех записей. Храним 3 последних дня
+   и одну копию постарше (от 3 до 10 дней назад), чтобы было куда откатиться,
+   даже если сбой заметили не сразу. */
+const SNAP_RE=/^bk(\d{4}-\d{2}-\d{2})__n$/;
+function snapDates(keys){ return [...new Set((keys||[]).map(k=>(k.match(SNAP_RE)||[])[1]).filter(Boolean))].sort(); }
+const daysBetween=(a,b)=>Math.round((parse(b)-parse(a))/864e5);
+function snapPlan(dates, t){
+  const recent=dates.slice(-3), rest=dates.slice(0,-3);
+  if(!rest.length) return [];
+  const anchor = daysBetween(rest[0],t)<=10 ? rest[0] : rest[rest.length-1];
+  return rest.filter(d=>d!==anchor);
+}
+async function snapDrop(keys, d){ const pref="bk"+d+"__"; const ks=keys.filter(k=>k.indexOf(pref)===0); if(ks.length) await csCall(CS.removeItems,ks); }
+async function snapshotDaily(){
+  if(mode!=="cloud" || !students.length) return;
+  let keys=await csCall(CS.getKeys)||[];
+  const t=today(); let dates=snapDates(keys);
+  if(!dates.includes(t)){
+    const data=JSON.stringify({app:"tutor-ledger",version:2,exported:new Date().toISOString(),students,months});
+    const need=Math.ceil(data.length/CHUNK)+1;
+    while(dates.length && keys.length+need>900){ await snapDrop(keys,dates[0]); dates.shift(); keys=await csCall(CS.getKeys)||[]; }
+    if(keys.length+need>900) return;          /* места нет даже без старых копий — основное важнее */
+    await csSet("bk"+t,data); dates.push(t);
+    keys=await csCall(CS.getKeys)||[];
+  }
+  for(const d of snapPlan(dates,t)) await snapDrop(keys,d);
+}
+function scheduleSnapshot(){ setTimeout(()=>{ queue=queue.then(()=>snapshotDaily()).catch(e=>console.error(e)); }, 1500); }
 /* вернулись в приложение — подтянуть то, что отметили на другом устройстве */
 let refreshing=false;
 async function refreshCloud(){
@@ -799,7 +853,7 @@ async function init(){
     if(got){
       setBase("st",students); for(const k in months) setBase("m"+k,months[k]); saveBase();
       if(rescueStudents()) enqueue(()=>pushStudents().then(()=>stamp("Сохранено в Telegram")));
-      saveLocal(); rescueNotice();
+      saveLocal(); rescueNotice(); scheduleSnapshot();
     }
     if(!got){
       const before=JSON.stringify(students);
@@ -2632,12 +2686,38 @@ function openGroupForm(){
 }
 
 /* ---------- backup ---------- */
+function restoreFrom(o){
+  if(!DEMO) try{ localStorage.setItem("tutor-before-restore",JSON.stringify({at:new Date().toISOString(),students,months})); }catch(e){}
+  replaceAll(o.students, o.months||{});
+  closeModal(); render();
+  showAlert('<b>Данные заменены резервной копией.</b> Если что-то не так, прежние записи можно вернуть.<div class="btns"><button class="sm" type="button" data-undorestore="1">Вернуть как было</button></div>',"restore");
+}
+async function fillAutoCopies(){
+  const box=$("bkAuto"); if(!box) return;
+  try{
+    const dates=snapDates(await csCall(CS.getKeys)).reverse();
+    if(!dates.length){ box.textContent="Первая копия появится в течение минуты после открытия приложения."; return; }
+    const items=[];
+    for(const d of dates){
+      try{ const o=JSON.parse(await csGet("bk"+d)); let n=0; for(const k in o.months) n+=(o.months[k]||[]).length;
+        items.push({d,o,txt:`${fmtDate(d)}${d===today()?" (сегодня)":""} · учеников ${o.students.length}, записей ${n}`}); }
+      catch(e){ items.push({d,o:null,txt:fmtDate(d)+" · копия повреждена"}); }
+    }
+    if(!$("bkAuto")) return;
+    box.innerHTML=items.map((it,i)=>`<div style="display:flex;align-items:center;gap:8px;margin:6px 0"><span style="flex:1">${esc(it.txt)}</span>${it.o?`<button class="sm" type="button" data-autocopy="${i}">Вернуть</button>`:""}</div>`).join("");
+    box.querySelectorAll("[data-autocopy]").forEach(b=>b.onclick=()=>{
+      const it=items[+b.dataset.autocopy];
+      if(b.dataset.sure){ restoreFrom(it.o); return; }
+      b.dataset.sure="1"; b.textContent="Точно вернуть?"; b.classList.add("done");
+    });
+  }catch(e){ box.textContent="Не удалось загрузить список копий. Закройте и снова откройте приложение."; }
+}
 function openBackup(){
   detailSid=null;
   const data=JSON.stringify({app:"tutor-ledger",version:2,exported:new Date().toISOString(),students,months});
   const local = mode==="local";
   openModal(`<h3>Резервная копия</h3>
-    <div class="hint" style="margin-top:0">${local?"Скачайте файл и храните его, например, в облаке. Из него можно восстановить все записи.":"Или скопируйте текст ниже и сохраните в заметках. Чтобы восстановить: «Резервная копия» → вставьте текст в поле ниже."}</div>
+    <div class="hint" style="margin-top:0">${local?"Скачайте файл и храните его, например, в облаке. Из него можно восстановить все записи.":"Нажмите «Скопировать данные» и сохраните текст в «Избранном» Telegram или в заметках. Чтобы восстановить, вставьте его в поле «Восстановить из копии» ниже."}</div>
     <div class="foot" style="margin-top:10px">
       ${local?`<button class="primary" type="button" id="bkDl">Скачать файл</button>`:""}
       <button class="${local?"secondary":"primary"}" type="button" id="bkCopy">Скопировать данные</button>
@@ -2645,6 +2725,9 @@ function openBackup(){
     <div class="foot" style="margin-top:8px"><button class="secondary" type="button" id="bkCsv">Весь журнал в Excel</button></div>
     <textarea id="bkOut" style="min-height:70px;margin-top:10px" readonly>${esc(data)}</textarea>
     <div class="hint" id="bkHint"></div>
+    ${mode==="cloud"?`<h3 style="margin-top:18px;font-size:16px">Автокопии</h3>
+    <div class="hint" style="margin-top:0">Раз в день приложение само сохраняет копию всех записей в Telegram. Хранятся копии за 3 последних дня и одна постарше.</div>
+    <div id="bkAuto" class="hint">Загрузка…</div>`:""}
     <h3 style="margin-top:18px;font-size:16px">Восстановить из копии</h3>
     <div class="hint" style="margin-top:0">Выберите файл копии или вставьте скопированный текст. Текущие записи будут заменены — при необходимости их можно будет вернуть.</div>
     <input type="file" id="bkFile" accept=".json,application/json,text/plain" style="margin-top:8px">
@@ -2653,6 +2736,7 @@ function openBackup(){
     <div class="hint" style="margin-top:10px">Хранилище: ${mode==="cloud"?"облако Telegram":mode==="db"?"аккаунт Claude":mode==="demo"?"пробный режим, ничего не сохраняется":"это устройство"} · ${esc(diag)}</div>
     <div class="foot"><button class="secondary" type="button" id="bkClose">Закрыть</button><button class="secondary" type="button" id="bkRestore" disabled>Восстановить</button></div>`);
   $("bkClose").onclick=closeModal;
+  if(mode==="cloud") fillAutoCopies();
   const markBackup=()=>{ try{ localStorage.setItem("tutor-last-backup",String(Date.now())); }catch(e){} };
   if(local) $("bkDl").onclick=()=>{
     const blob=new Blob([data],{type:"application/json"});
@@ -2684,10 +2768,7 @@ function openBackup(){
   $("bkFile").onchange=()=>{ const f=$("bkFile").files[0]; if(!f) return; const r=new FileReader(); r.onload=()=>{ $("bkIn").value=r.result; check(r.result); }; r.readAsText(f); };
   $("bkRestore").onclick=()=>{
     if(!incoming) return;
-    if(!DEMO) try{ localStorage.setItem("tutor-before-restore",JSON.stringify({at:new Date().toISOString(),students,months})); }catch(e){}
-    replaceAll(incoming.students, incoming.months);
-    closeModal(); render();
-    showAlert('<b>Данные заменены резервной копией.</b> Если что-то не так, прежние записи можно вернуть.<div class="btns"><button class="sm" type="button" data-undorestore="1">Вернуть как было</button></div>',"restore");
+    restoreFrom(incoming);
   };
 }
 
@@ -2902,7 +2983,7 @@ function openImport(){
 if(typeof module!=="undefined" && module.exports){
   module.exports={_t:{
     set:(st,mo)=>{ students=st; normStudents(); months=mo||{}; },
-    students:()=>students, months:()=>months,
+    students:()=>students, months:()=>months, snapPlan, fillAutoCopies, openBackup,
     slotsOn, slotStatus, groupSlots, markDone, markDay, undoSlot, findEv,
     costOf, balanceOf, monthStats, planOf, rateAt, payCheck, registryRows, journalRows,
     monthPulse, freeSlots, reportDue, reportPeriodFor, parentText, tplText, fullName,
