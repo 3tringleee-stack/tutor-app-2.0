@@ -660,7 +660,10 @@ async function pushKey(name, getLocal, setLocal){
   const raw=await csGet(name);
   const remote=raw?JSON.parse(raw):[];
   const local=getLocal();
-  const merged=mergeById(local, name==="st"?normList(remote):remote, raw===null&&!base[name]?null:base[name]);
+  /* Пусто там, где раньше были записи, — это сбой чтения, а не удаление: только объединяем, ничего не выбрасываем */
+  const unsure = raw===null || (remote.length===0 && base[name] && Object.keys(base[name]).length>0);
+  let merged=mergeById(local, name==="st"?normList(remote):remote, unsure?null:base[name]);
+  if(name==="st") merged=normList(keepStudents(merged, local.concat(normList(remote))));
   const changedHere=JSON.stringify(merged)!==JSON.stringify(local);
   setLocal(merged);
   const written=getLocal(), txt=JSON.stringify(written);
@@ -697,7 +700,7 @@ function showError(err){
   showAlert(full ? '<b>Хранилище Telegram заполнено.</b> Новые записи пока только на этом устройстве. Сохраните резервную копию и напишите автору.<div class="btns"><button class="sm done" type="button" data-openbackup="1">Сохранить копию</button></div>'
     : '<b>Не удалось сохранить в Telegram.</b> Новые записи пока есть только на этом устройстве. Обычно помогает закрыть и снова открыть приложение.<div class="btns"><button class="sm done" type="button" data-openbackup="1">Сохранить копию на всякий случай</button></div>',"save");
 }
-function saveLocal(){ if(DEMO) return; try{ localStorage.setItem(LS_KEY, JSON.stringify({students,months})); }catch(e){
+function saveLocal(){ if(DEMO) return; vaultPut(students); try{ localStorage.setItem(LS_KEY, JSON.stringify({students,months})); }catch(e){
   $("syncState").textContent="Не удалось сохранить в браузере";
   if(mode==="local") showAlert('<b>Последние записи не сохранились:</b> в браузере закончилось место. Сохраните резервную копию, пока приложение открыто.<div class="btns"><button class="sm done" type="button" data-openbackup="1">Сохранить копию</button></div>',"save");
 } }
@@ -716,7 +719,55 @@ function saveMonth(key){
 function loadLocal(){
   try{ const raw=localStorage.getItem(LS_KEY); if(raw){ const o=JSON.parse(raw); if(o.students) students=o.students; if(o.months) months=o.months; } }catch(e){}
 }
-function normStudents(){ students=students.map(s=>({mode:"",note:"",hours:1,pair:"",grade:"",subject:"",goal:"",parent:"",contact:"",about:"",last:"",group:"",payMethod:"",contractNo:"",contractDate:"",oneoff:false,...s,sched:Array.isArray(s.sched)?s.sched:[],prices:Array.isArray(s.prices)?s.prices:[]})); }
+function normStudents(){ students=students.map(s=>({mode:"",note:"",hours:1,pair:"",grade:"",subject:"",goal:"",parent:"",contact:"",about:"",last:"",group:"",payMethod:"",contractNo:"",contractDate:"",oneoff:false,...s,sched:Array.isArray(s.sched)?s.sched:[],prices:Array.isArray(s.prices)?s.prices:[]})).map(s=>s.ph&&!/\(восстановлен\)/.test(s.name||"")?{...s,ph:false}:s); }
+/* ---------- страховка списка учеников ----------
+   Учеников в приложении нельзя удалить (только в архив), поэтому при любой синхронизации
+   список только объединяется по id и никогда не теряет людей. Плюс «сейф» на устройстве
+   со всеми, кто когда-либо был, и восстановление по занятиям, если имени нигде не осталось. */
+const VAULT="tutor-st-vault";
+function vaultGet(){ try{ return JSON.parse(localStorage.getItem(VAULT)||"{}")||{}; }catch(e){ return {}; } }
+function vaultPut(list){
+  if(DEMO) return; const v=vaultGet(); let ch=false;
+  (list||[]).forEach(x=>{ if(x&&x.id&&!x.ph){ const t=JSON.stringify(x); if(JSON.stringify(v[x.id])!==t){ v[x.id]=x; ch=true; } } });
+  if(ch) try{ localStorage.setItem(VAULT,JSON.stringify(v)); }catch(e){}
+}
+function keepStudents(list, extra){
+  const out=(list||[]).slice(); const idx=new Map(out.map((x,i)=>[x.id,i]));
+  (extra||[]).forEach(x=>{
+    if(!x||!x.id||x.ph) return;
+    if(!idx.has(x.id)){ idx.set(x.id,out.length); out.push(x); }
+    else if(out[idx.get(x.id)].ph) out[idx.get(x.id)]=x;
+  });
+  return out;
+}
+function localStudents(){ try{ const o=JSON.parse(localStorage.getItem(LS_KEY)||"null"); return o&&Array.isArray(o.students)?o.students:[]; }catch(e){ return []; } }
+function placeholderFor(sid, evs, n){
+  const les=evs.filter(e=>e.date).sort((a,b)=>a.date<b.date?-1:1);
+  const last=les[les.length-1];
+  const priced=les.filter(e=>e.price>0); const price=priced.length?priced[priced.length-1].price:0;
+  const from5=addDays(last?last.date:today(),-35), times={}, durs={};
+  les.filter(e=>e.planned && e.time && e.date>=from5 && (e.type==="lesson"||e.type==="cancel"||e.type==="moved"||e.type==="skip"))
+     .forEach(e=>{ const w=parse(e.date).getDay(); times[w]=e.time; durs[w]=e.hours||1; });
+  const days=Object.keys(times).map(Number).sort();
+  return {id:sid,name:"Ученик "+n+" (восстановлен)",ph:true,price,hours:1,mode:"",archived:false,
+    sched:days.length?[{from:les[0].date,days,times,durs}]:[],prices:[]};
+}
+function rescueStudents(){
+  const sig=()=>students.map(x=>x.id+(x.ph?"*":"")).join();
+  const before=sig();
+  students=keepStudents(students, localStudents().concat(Object.values(vaultGet())));
+  const known=new Set(students.map(x=>x.id)), orphan={};
+  allEvents().forEach(e=>{ if(e&&e.sid&&!known.has(e.sid)) (orphan[e.sid]=orphan[e.sid]||[]).push(e); });
+  let n=students.filter(x=>x.ph).length;
+  Object.keys(orphan).forEach(sid=>students.push(placeholderFor(sid,orphan[sid],++n)));
+  normStudents();
+  return sig()!==before;
+}
+function rescueNotice(){
+  const k=students.filter(x=>x.ph&&!x.archived).length;
+  if(!k){ hideAlert("rescue"); return; }
+  showAlert(`<b>Из-за сбоя синхронизации пропали имена учеников (${k}).</b> Все занятия и оплаты на месте — учеников мы восстановили по ним, с ценой и расписанием из последних занятий. Откройте «Ученики» и впишите имена: нажмите на «Ученик … (восстановлен)» → «Настройки». Проверьте и способ оплаты.`,"rescue");
+}
 function rateAt(st,d){
   let r=null;
   (st.prices||[]).slice().sort((a,b)=>a.from<b.from?-1:1).forEach(p=>{ if(p.from<=d) r=p.price; });
@@ -741,11 +792,15 @@ async function init(){
     }catch(e){ console.error(e); failed=true; }
     if(failed){
       /* облако не ответило: НЕ считаем его пустым и ничего туда не пишем */
-      mode="local"; loadLocal(); normStudents();
+      mode="local"; loadLocal(); normStudents(); rescueStudents(); rescueNotice();
       $("syncState").textContent="Не удалось загрузить записи из Telegram. Показана копия с этого устройства, новые изменения сохраняются только здесь. Закройте и снова откройте приложение.";
       render(); return;
     }
-    if(got){ setBase("st",students); for(const k in months) setBase("m"+k,months[k]); saveBase(); saveLocal(); }
+    if(got){
+      setBase("st",students); for(const k in months) setBase("m"+k,months[k]); saveBase();
+      if(rescueStudents()) enqueue(()=>pushStudents().then(()=>stamp("Сохранено в Telegram")));
+      saveLocal(); rescueNotice();
+    }
     if(!got){
       const before=JSON.stringify(students);
       loadLocal(); normStudents();
@@ -2516,11 +2571,11 @@ function openStudentForm(sid){
       oneoff:$("sOneoff").checked,last:$("sLast").value.trim(),group:$("sGroup").value.trim(),payMethod:$("sPayM").value,
       contractNo:$("sContractNo").value.trim(),contractDate:$("sContractDate").value,
       grade:$("sGrade").value.trim(),subject:$("sSubject").value.trim(),goal:$("sGoal").value.trim(),
-      parent:$("sParent").value.trim(),contact:$("sContact").value.trim(),about:$("sAbout").value.trim()};
+      parent:$("sParent").value.trim(),contact:$("sContact").value.trim(),about:$("sAbout").value.trim(),ph:false};
     if(sid) students=students.map(s=>s.id===sid?upd:s); else { upd.id="s"+uid(); students=students.concat([upd]); }
     if(pair){ students=students.map(s=>s.id===pair?{...s,pair:upd.id}:s); students=students.map(s=>(s.pair===upd.id&&s.id!==pair)?{...s,pair:""}:s); }
     else if(sid) students=students.map(s=>s.pair===sid?{...s,pair:""}:s);
-    saveStudents(); render(); sid?openDetail(sid):closeModal();
+    saveStudents(); render(); rescueNotice(); sid?openDetail(sid):closeModal();
   };
   if(sid && $("sArch")) $("sArch").onclick=()=>{
     if(st.archived){ unarchive(sid); return; }
