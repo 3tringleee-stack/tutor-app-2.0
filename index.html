@@ -137,7 +137,14 @@ details.arch[open] summary::before{transform:rotate(90deg)}
 .sm.big{min-height:44px;padding:0 16px;font-size:14px;display:inline-flex;align-items:center;gap:6px}
 @media (max-width:559px){.prow.open .acts2{width:100%}.prow.open .acts2 .big{flex:1;justify-content:center}}
 .prow .who small{color:var(--muted);font-size:12.5px;margin-left:4px}
-.prow .who .lnote{display:block;margin-top:2px;font-size:13px;color:var(--ink);opacity:.8}
+.notes{flex-basis:100%;display:flex;flex-direction:column;gap:6px;margin-top:-2px}
+.nt{padding:7px 10px;border-radius:8px;font-size:13.5px;line-height:1.35;border-left:3px solid;word-break:break-word}
+.nt .pl{display:block;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;margin-bottom:2px}
+.nt.prev{background:var(--grid);border-color:var(--c-plan);color:var(--muted)}
+.nt.prev .pl{color:var(--muted)}
+.nt.now{background:color-mix(in srgb,var(--c-done) 12%,var(--paper));border-color:var(--c-done);color:var(--ink)}
+.nt.now .pl{color:var(--c-done)}
+.nt.now .ed{float:right;border:0;background:none;color:var(--muted);font-size:12.5px;padding:0 0 0 8px;cursor:pointer}
 .linkbtn{display:block;margin-top:2px;border:0;background:none;padding:0;color:var(--blue);font-size:13px;font-weight:600;cursor:pointer}
 .btns{display:flex;gap:var(--s2);flex-wrap:wrap;align-items:center}
 .sm{border:1px solid var(--line);background:var(--paper);border-radius:10px;padding:6px 11px;font-size:13px;font-weight:600}
@@ -1175,19 +1182,22 @@ function slotRow(g){
     return `<div class="prow open">${whoBtn}<div class="btns acts2">
     ${group.length>1?`<button class="sm" type="button" data-split="${key}" title="Отметить каждого отдельно">отметить по одному</button>`:""}
     <button class="sm big done" type="button" data-done="${key}">${ICO.check}<span>Проведено</span></button>
-    <button class="sm big" type="button" data-miss="${key}">${ICO.cross}<span>Не было</span></button></div></div>`;
+    <button class="sm big" type="button" data-miss="${key}">${ICO.cross}<span>Не было</span></button></div>${group.length===1&&prevNote(st.id,sl.d)?`<div class="notes">${prevNoteHtml(st.id,sl.d)}</div>`:""}</div>`;
   }
   let label="";
   if(s==="lesson") label=`<span class="st-status done">проведено${e.trial?" · пробное":st.price>0?" · "+rub(costOf(e,st)):""}</span>`;
   else if(s==="moved") label = e.toDate ? `<span class="st-status moved">перенесено на ${fmtDate(e.toDate)}${e.toTime?" "+e.toTime:""}</span>` : `<span class="st-status open">перенос — дата не назначена</span>${sl.setKey?`<button class="sm done" type="button" data-setdate="${e.id}">Назначить дату</button>`:""}`;
   else if(s==="skip") label=`<span class="st-status skip">не было (каникулы)</span>`;
   else if(s==="cancel") label = e.status==="charged" ? `<span class="st-status cancel">отмена с оплатой</span>` : e.status==="free" ? `<span class="st-status cancel">отмена без оплаты</span>` : `<span class="st-status open">отмена: платит или нет?</span>`;
-  let whoX=who;
+  let whoX=who, notes="";
   if(s==="lesson" && group.length===1){
-    const note = e.comment ? `<span class="lnote">${esc(e.comment)}</span>` : `<button class="linkbtn" type="button" data-note="${key}">+ что прошли</button>`;
-    whoX = who.replace(/<\/div>$/, note+"</div>");
+    const lbl = sl.d===today() ? "Сегодня" : "На этом занятии";
+    const now = e.comment ? `<div class="nt now"><button class="ed" type="button" data-note="${key}">изменить</button><span class="pl">${lbl}</span>${esc(e.comment)}</div>` : "";
+    notes = `<div class="notes">${prevNoteHtml(st.id,sl.d)}${now}</div>`;
+    if(!e.comment) whoX = who.replace(/<\/div>$/, `<button class="linkbtn" type="button" data-note="${key}">+ что прошли и что задано</button></div>`);
+    if(notes==='<div class="notes"></div>') notes="";
   }
-  return `<div class="prow">${whoX}<div class="btns">${label}<button class="sm" type="button" data-edit="${key}">${ICO.pencil}<span class="btxt">Изменить</span></button><button class="undo" type="button" data-undo="${key}" title="Снять отметку" aria-label="Снять отметку">${ICO.undo}</button></div></div>`;
+  return `<div class="prow">${whoX}<div class="btns">${label}<button class="sm" type="button" data-edit="${key}">${ICO.pencil}<span class="btxt">Изменить</span></button><button class="undo" type="button" data-undo="${key}" title="Снять отметку" aria-label="Снять отметку">${ICO.undo}</button></div>${notes}</div>`;
 }
 
 function viewWelcome(){
@@ -2260,6 +2270,16 @@ function openTweak(g){
 }
 
 /* Изменить отмеченное */
+/* Заметка с прошлого проведённого занятия этого ученика — чтобы видеть, что задали */
+function prevNote(sid, d){
+  let best=null;
+  allEvents().forEach(e=>{ if(e.sid===sid && e.type==="lesson" && e.comment && e.date<d && (!best || e.date>best.date)) best=e; });
+  return best;
+}
+function prevNoteHtml(sid, d){
+  const p=prevNote(sid,d); if(!p) return "";
+  return `<div class="nt prev"><span class="pl">В прошлый раз · ${fmtDate(p.date)}</span>${esc(p.comment)}</div>`;
+}
 function openSlotEdit(sl){
   detailSid=null;
   const e=sl.ev, st=sl.st, s=slotStatus(sl);
@@ -2272,7 +2292,8 @@ function openSlotEdit(sl){
   else if(s==="moved") body=`<div class="hint">${e.toDate?"Перенесено на "+fmtDate(e.toDate)+(e.toTime?", "+e.toTime:"")+".":"Дата переноса ещё не назначена."}${child&&child.type!=="makeup"?" Перенесённое занятие уже отмечено — если отменить перенос, отметка тоже удалится.":""}</div>`;
   openModal(`<h3>${esc(st.name)} · ${fmtDate(sl.d)}</h3>
     ${body}
-    <label for="eCom">Заметка: что прошли, что задано</label><input id="eCom" value="${esc(e.comment||"")}">
+    ${s==="lesson"?prevNoteHtml(st.id,sl.d).replace('class="nt prev"','class="nt prev" style="margin-top:12px"'):""}
+    <label for="eCom">Заметка: что прошли, что задано</label><input id="eCom" value="${esc(e.comment||"")}" placeholder="Например: дроби, задано № 12–15">
     <div class="mlinks"><button class="small-link" type="button" id="eUndo">${s==="moved"?"Отменить перенос":"Снять отметку — занятие снова станет неотмеченным"}</button></div>
     <div class="foot">
       <button class="secondary" type="button" id="eClose">Отмена</button>
@@ -2983,7 +3004,7 @@ function openImport(){
 if(typeof module!=="undefined" && module.exports){
   module.exports={_t:{
     set:(st,mo)=>{ students=st; normStudents(); months=mo||{}; },
-    students:()=>students, months:()=>months, snapPlan, fillAutoCopies, openBackup,
+    students:()=>students, months:()=>months, snapPlan, prevNote, fillAutoCopies, openBackup,
     slotsOn, slotStatus, groupSlots, markDone, markDay, undoSlot, findEv,
     costOf, balanceOf, monthStats, planOf, rateAt, payCheck, registryRows, journalRows,
     monthPulse, freeSlots, reportDue, reportPeriodFor, parentText, tplText, fullName,
