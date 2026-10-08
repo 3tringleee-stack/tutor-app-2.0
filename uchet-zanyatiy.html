@@ -27,7 +27,7 @@
     --blue:#B3A4E0; --blue-soft:#2C2640; --red:#E8909F; --red-soft:#3B242C; --green:#88C9AE; --green-soft:#1F3730;
     --amber:#DDB278; --amber-soft:#3A2F20;
     --info:#89BAD4; --info-soft:#21333D;
-    --c-done:#34D17A; --c-due:#FFB020; --c-moved:#A78BFA; --c-cancel:#FF5C5C; --c-plan:#CFC8DA;
+    --topic-l:74%; --c-done:#34D17A; --c-due:#FFB020; --c-moved:#A78BFA; --c-cancel:#FF5C5C; --c-plan:#CFC8DA;
     --shadow:none;
   }
 }
@@ -36,7 +36,7 @@
   --blue:#B3A4E0; --blue-soft:#2C2640; --red:#E8909F; --red-soft:#3B242C; --green:#88C9AE; --green-soft:#1F3730;
   --amber:#DDB278; --amber-soft:#3A2F20;
   --info:#89BAD4; --info-soft:#21333D;
-    --c-done:#34D17A; --c-due:#FFB020; --c-moved:#A78BFA; --c-cancel:#FF5C5C; --c-plan:#CFC8DA;
+    --topic-l:74%; --c-done:#34D17A; --c-due:#FFB020; --c-moved:#A78BFA; --c-cancel:#FF5C5C; --c-plan:#CFC8DA;
   --shadow:none;
 }
 *{box-sizing:border-box}
@@ -137,6 +137,9 @@ details.arch[open] summary::before{transform:rotate(90deg)}
 .sm.big{min-height:44px;padding:0 16px;font-size:14px;display:inline-flex;align-items:center;gap:6px}
 @media (max-width:559px){.prow.open .acts2{width:100%}.prow.open .acts2 .big{flex:1;justify-content:center}}
 .prow .who small{color:var(--muted);font-size:12.5px;margin-left:4px}
+.topic{display:inline-block;margin-left:7px;padding:1px 8px;border-radius:999px;font-size:12px;font-weight:700;vertical-align:1px;
+  background:hsl(var(--h) 70% 50% / .16);color:hsl(var(--h) 60% var(--topic-l,36%))}
+.ssubj{grid-column:1/-1;margin:0!important;padding:7px 9px!important;font-size:13.5px}
 .notes{flex-basis:100%;display:flex;flex-direction:column;gap:6px;margin-top:-2px}
 .nt{padding:7px 10px;border-radius:8px;font-size:13.5px;line-height:1.35;border-left:3px solid;word-break:break-word}
 .nt .pl{display:block;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;margin-bottom:2px}
@@ -1043,7 +1046,7 @@ function markDone(g){
   change(()=>{ list.forEach(sl=>{
     const st=sl.st;
     if(isDraft(sl.ev)) _set(sl.ev.id, e=>({...e,type:"lesson",hours:sl.hours,time:sl.time,price:rateAt(st,sl.d)||null}));
-    else _add({id:uid(),sid:st.id,date:sl.d,type:"lesson",planned:true,time:sl.time,hours:sl.hours,price:rateAt(st,sl.d)||null,comment:""});
+    else _add({id:uid(),sid:st.id,date:sl.d,type:"lesson",planned:true,time:sl.time,hours:sl.hours,price:rateAt(st,sl.d)||null,comment:"",...topicStamp(st,sl.d)});
   }); });
 }
 function markDay(d){
@@ -1051,7 +1054,7 @@ function markDay(d){
     slotsOn(d).filter(sl=>slotStatus(sl)==="open").forEach(sl=>{
       const st=sl.st;
       if(isDraft(sl.ev)) _set(sl.ev.id, e=>({...e,type:"lesson",hours:sl.hours,time:sl.time,price:rateAt(st,d)||null}));
-      else _add({id:uid(),sid:st.id,date:d,type:"lesson",planned:true,time:sl.time,hours:sl.hours,price:rateAt(st,d)||null,comment:""});
+      else _add({id:uid(),sid:st.id,date:d,type:"lesson",planned:true,time:sl.time,hours:sl.hours,price:rateAt(st,d)||null,comment:"",...topicStamp(st,d)});
     });
   });
 }
@@ -1062,7 +1065,7 @@ function undoSlot(ev){
     if(e.child){ const c=findEv(e.child); if(c) _resetOrDelete(c); }
     if(e.type==="tweak"){ _del(e.id); return; }
     if(e.slot==="makeup"){
-      _set(e.id, x=>{ const n={id:x.id,sid:x.sid,date:x.date,slot:"makeup",type:"makeup",time:x.time,hours:x.hours,fromDate:x.fromDate,parent:x.parent,comment:x.comment||""}; return n; });
+      _set(e.id, x=>{ const n={id:x.id,sid:x.sid,date:x.date,slot:"makeup",type:"makeup",time:x.time,hours:x.hours,fromDate:x.fromDate,parent:x.parent,comment:x.comment||"",...(typeof x.topic==="string"?{topic:x.topic}:{})}; return n; });
     } else _del(e.id);
   });
 }
@@ -1091,7 +1094,7 @@ function finishMove(d){
       const childId=uid();
       if(one.ev) _set(one.ev.id,x=>({...x,type:"moved",toDate:d,toTime:tm,child:childId,comment}));
       else _add({id:uid(),sid:one.st.id,date:one.d,type:"moved",planned:true,time:one.time,hours:one.hours,toDate:d,toTime:tm,child:childId,comment});
-      _add({id:childId,sid:one.st.id,date:d,slot:"makeup",type:"makeup",time:tm,hours:h,fromDate:one.d,parent:one.ev?one.ev.id:null,comment:""});
+      _add({id:childId,sid:one.st.id,date:d,slot:"makeup",type:"makeup",time:tm,hours:h,fromDate:one.d,parent:one.ev?one.ev.id:null,comment:"",topic:slotTopic(one)});
     }));
     closeModal();
   };
@@ -1176,13 +1179,14 @@ function slotRow(g){
   let sub = timeTxt + (sl.time?" · "+fmtH(sl.hours):"");
   if(sl.kind==="makeup") sub += " · перенесено с "+fmtDate(sl.ev.fromDate||sl.d);
   if(sl.kind==="extra") sub += " · вне расписания";
-  const who=`<div class="who"><b>${esc(names)}</b><small>${sub}${group.length>1?(gname?` · группа, ${group.length} ${plural(group.length,"ученик","ученика","учеников")}`:" · пара"):""}</small></div>`;
+  const tp = group.length===1 ? slotTopic(sl) : "";
+  const who=`<div class="who"><b>${esc(names)}</b>${topicChip(tp)}<small>${sub}${group.length>1?(gname?` · группа, ${group.length} ${plural(group.length,"ученик","ученика","учеников")}`:" · пара"):""}</small></div>`;
   if(s==="open"){
     const whoBtn = who.replace('<div class="who">',`<button class="who whobtn" type="button" data-tweak="${key}" title="Изменить время и длительность">`).replace(/<\/div>$/,`<span class="tw">${ICO.pencil}</span></button>`);
     return `<div class="prow open">${whoBtn}<div class="btns acts2">
     ${group.length>1?`<button class="sm" type="button" data-split="${key}" title="Отметить каждого отдельно">отметить по одному</button>`:""}
     <button class="sm big done" type="button" data-done="${key}">${ICO.check}<span>Проведено</span></button>
-    <button class="sm big" type="button" data-miss="${key}">${ICO.cross}<span>Не было</span></button></div>${group.length===1&&prevNote(st.id,sl.d)?`<div class="notes">${prevNoteHtml(st.id,sl.d)}</div>`:""}</div>`;
+    <button class="sm big" type="button" data-miss="${key}">${ICO.cross}<span>Не было</span></button></div>${group.length===1&&prevNote(st.id,sl.d,tp)?`<div class="notes">${prevNoteHtml(st.id,sl.d,tp)}</div>`:""}</div>`;
   }
   let label="";
   if(s==="lesson") label=`<span class="st-status done">проведено${e.trial?" · пробное":st.price>0?" · "+rub(costOf(e,st)):""}</span>`;
@@ -1193,7 +1197,7 @@ function slotRow(g){
   if(s==="lesson" && group.length===1){
     const lbl = sl.d===today() ? "Сегодня" : "На этом занятии";
     const now = e.comment ? `<div class="nt now"><button class="ed" type="button" data-note="${key}">изменить</button><span class="pl">${lbl}</span>${esc(e.comment)}</div>` : "";
-    notes = `<div class="notes">${prevNoteHtml(st.id,sl.d)}${now}</div>`;
+    notes = `<div class="notes">${prevNoteHtml(st.id,sl.d,tp)}${now}</div>`;
     if(!e.comment) whoX = who.replace(/<\/div>$/, `<button class="linkbtn" type="button" data-note="${key}">+ что прошли и что задано</button></div>`);
     if(notes==='<div class="notes"></div>') notes="";
   }
@@ -2073,7 +2077,7 @@ function durOptions(v){ v=+v||1; const list=DUR_GRID.some(h=>sameH(h,v))?DUR_GRI
   return list.map(h=>`<option value="${h}"${sameH(h,v)?" selected":""}>${fmtH(h)}</option>`).join(""); }
 function schedRowsOf(st,d){
   const p=periodFor(st,d||today()); if(!p) return [];
-  return WD_ORDER.filter(w=>p.days.includes(w)).map(w=>({w,time:(p.times||{})[w]||"",dur:(p.durs||{})[w]||st.hours||1}));
+  return WD_ORDER.filter(w=>p.days.includes(w)).map(w=>({w,time:(p.times||{})[w]||"",dur:(p.durs||{})[w]||st.hours||1,subj:((st.subj||{})[w])||""}));
 }
 /* Редактор: кнопки дней сверху, под ними по строке на каждый выбранный день */
 function schedEditor(id, rows, defDur){
@@ -2081,18 +2085,19 @@ function schedEditor(id, rows, defDur){
   const rowHTML=r=>`<div class="srow" data-w="${r.w}"><span class="sd">${WD_CAP[r.w]}</span>
       <input type="time" step="300" value="${r.time}" data-k="time" aria-label="Время, ${WD_LONG[r.w]}">
       <select data-k="dur" aria-label="Длительность, ${WD_LONG[r.w]}">${durOptions(r.dur)}</select>
-      <button class="undo" type="button" data-sdel="${r.w}" title="Убрать этот день" aria-label="Убрать ${WD_LONG[r.w]}">${ICO.cross}</button></div>`;
-  const html=()=>`<div class="sched" id="${id}">
+      <button class="undo" type="button" data-sdel="${r.w}" title="Убрать этот день" aria-label="Убрать ${WD_LONG[r.w]}">${ICO.cross}</button>
+      <input class="ssubj" type="text" list="${id}Topics" value="${esc(r.subj||"")}" data-k="subj" placeholder="Тема дня — например, Алгебра (необязательно)" aria-label="Тема, ${WD_LONG[r.w]}"></div>`;
+  const html=()=>`<div class="sched" id="${id}"><datalist id="${id}Topics">${["Алгебра","Геометрия","Теория","Практика","Пробник"].map(t=>`<option value="${t}">`).join("")}</datalist>
       <div class="wdpick">${WD_ORDER.map(w=>`<button type="button" data-sw="${w}" aria-pressed="${st.rows.some(r=>r.w===w)}">${WD[w]}</button>`).join("")}</div>
       <div class="srows">${st.rows.length?WD_ORDER.map(w=>st.rows.find(r=>r.w===w)).filter(Boolean).map(rowHTML).join(""):'<div class="hint" style="margin:6px 0 0">Нажмите на день недели — появится строка для времени и длительности.</div>'}</div></div>`;
   const read=()=>{ const el=$(id); if(!el) return; el.querySelectorAll(".srow").forEach(rw=>{ const r=st.rows.find(x=>x.w===+rw.dataset.w); if(!r) return;
-      r.time=rw.querySelector('[data-k="time"]').value; r.dur=num(rw.querySelector('[data-k="dur"]').value)||r.dur; }); };
+      r.time=rw.querySelector('[data-k="time"]').value; r.dur=num(rw.querySelector('[data-k="dur"]').value)||r.dur; r.subj=(rw.querySelector('[data-k="subj"]').value||"").trim(); }); };
   const redraw=()=>{ const el=$(id); if(el){ el.outerHTML=html(); bind(); } };
   const bind=()=>{ const el=$(id); if(!el) return;
     el.onclick=e=>{ const b=e.target.closest("button"); if(!b) return; read();
       if(b.dataset.sw!==undefined){ const w=+b.dataset.sw;
         if(st.rows.some(r=>r.w===w)) st.rows=st.rows.filter(r=>r.w!==w);
-        else { const last=st.rows[st.rows.length-1]; st.rows.push({w,time:last?last.time:"17:00",dur:last?last.dur:(defDur||1)}); }
+        else { const last=st.rows[st.rows.length-1]; st.rows.push({w,time:last?last.time:"17:00",dur:last?last.dur:(defDur||1),subj:""}); }
         redraw(); const nr=$(id).querySelector(`.srow[data-w="${w}"] input`); if(nr && !(typeof matchMedia!=="undefined" && matchMedia("(pointer:coarse)").matches)) nr.focus(); }
       else if(b.dataset.sdel!==undefined){ st.rows=st.rows.filter(r=>r.w!==+b.dataset.sdel); redraw(); }
     };
@@ -2102,6 +2107,7 @@ function schedEditor(id, rows, defDur){
 /* Какое расписание показывать в редакторе: будущее, если уже запланировано, иначе текущее */
 function schedEditDate(st){ const fut=(st.sched||[]).map(p=>p.from).filter(f=>f>today()).sort(); return fut.length?fut[fut.length-1]:today(); }
 /* Записать новое расписание с даты from; прошлые месяцы не трогаем */
+function subjFromRows(st, rows){ const m={}; rows.forEach(r=>{ if(r.subj) m[r.w]=r.subj; }); return m; }
 function applySched(st, rows, from){
   const times={}, durs={};
   rows.forEach(r=>{ if(r.time) times[r.w]=r.time; durs[r.w]=r.dur; });
@@ -2127,7 +2133,7 @@ function openSchedule(sid, note){
   const ed=schedEditor("schEd", schedRowsOf(st,ed_d), st.hours||1);
   const defFrom = ed_d>today() ? ed_d : today();
   openModal(`<h3>Расписание: ${esc(st.name)}</h3>
-    <div class="hint" style="margin-top:-6px">${note?esc(note):"Еженедельные занятия: выберите дни, а для каждого дня — время и длительность."}</div>
+    <div class="hint" style="margin-top:-6px">${note?esc(note):"Еженедельные занятия: выберите дни, а для каждого дня — время и длительность. Тема дня (например, «Алгебра») — чтобы на занятии видеть заметку с прошлого урока той же темы."}</div>
     ${ed.html()}
     ${ed_d>today()?`<div class="hint">Это расписание начнёт действовать ${fmtDate(ed_d)}. До этого — прежнее.</div>`:""}
     <label for="schFrom">С какого дня действует</label><input type="date" id="schFrom" value="${defFrom}">
@@ -2139,7 +2145,7 @@ function openSchedule(sid, note){
   $("schSave").onclick=()=>{
     const rows=ed.rows(), from=$("schFrom").value||today();
     if(rows.some(r=>!r.time)){ $("schErr").innerHTML='<span class="warn">Укажите время для каждого дня.</span>'; return; }
-    students=students.map(x=>x.id===sid?applySched(x,rows,from):x);
+    students=students.map(x=>x.id===sid?{...applySched(x,rows,from),subj:subjFromRows(x,rows)}:x);
     saveStudents(); render(); openDetail(sid);
   };
 }
@@ -2201,7 +2207,7 @@ function openMiss(g){
         const childId=uid();
         if(one.ev) _set(one.ev.id,x=>({...x,type:"moved",toDate:nd,toTime:nt,child:childId,comment}));
         else _add({id:uid(),sid:one.st.id,date:one.d,type:"moved",planned:true,time:one.time,hours:one.hours,toDate:nd,toTime:nt,child:childId,comment});
-        _add({id:childId,sid:one.st.id,date:nd,slot:"makeup",type:"makeup",time:nt,hours:nh,fromDate:one.d,parent:one.ev?one.ev.id:null,comment:""});
+        _add({id:childId,sid:one.st.id,date:nd,slot:"makeup",type:"makeup",time:nt,hours:nh,fromDate:one.d,parent:one.ev?one.ev.id:null,comment:"",topic:slotTopic(one)});
       }));
     } else if(choice==="later"){
       change(()=>applyAll(one=>{
@@ -2270,15 +2276,34 @@ function openTweak(g){
 }
 
 /* Изменить отмеченное */
-/* Заметка с прошлого проведённого занятия этого ученика — чтобы видеть, что задали */
-function prevNote(sid, d){
-  let best=null;
-  allEvents().forEach(e=>{ if(e.sid===sid && e.type==="lesson" && e.comment && e.date<d && (!best || e.date>best.date)) best=e; });
+/* ---------- темы занятий ----------
+   У ученика можно задать тему для дня недели: вторник — «Алгебра», четверг — «Геометрия».
+   Тогда на каждом занятии видна заметка с прошлого занятия той же темы. */
+const subjAt=(st,d)=>((st&&st.subj)||{})[parse(d).getDay()]||"";
+function topicOf(e, st){ if(!e) return ""; if(typeof e.topic==="string") return e.topic; return subjAt(st||byId(e.sid), e.date); }
+function slotTopic(sl){ return sl.ev && typeof sl.ev.topic==="string" ? sl.ev.topic : subjAt(sl.st, sl.d); }
+function topicStamp(st, d){ const t=subjAt(st,d); return t?{topic:t}:{}; }
+function topicHue(t){ let h=0; for(const c of String(t).toLowerCase()) h=(h*31+c.charCodeAt(0))%360; return h; }
+function topicChip(t){ return t?`<span class="topic" style="--h:${topicHue(t)}">${esc(t)}</span>`:""; }
+function knownTopics(st){
+  const set=new Set(Object.values((st&&st.subj)||{}).filter(Boolean));
+  allEvents().forEach(e=>{ if(st&&e.sid===st.id&&e.topic) set.add(e.topic); });
+  ["Алгебра","Геометрия","Теория","Практика","Пробник","Разбор д/з"].forEach(x=>set.add(x));
+  return [...set];
+}
+/* Заметка с прошлого проведённого занятия — той же темы, если темы заданы */
+function prevNote(sid, d, topic){
+  const st=byId(sid); let best=null;
+  allEvents().forEach(e=>{
+    if(e.sid!==sid || e.type!=="lesson" || !e.comment || e.date>=d) return;
+    if(topic && topicOf(e,st)!==topic) return;
+    if(!best || e.date>best.date) best=e;
+  });
   return best;
 }
-function prevNoteHtml(sid, d){
-  const p=prevNote(sid,d); if(!p) return "";
-  return `<div class="nt prev"><span class="pl">В прошлый раз · ${fmtDate(p.date)}</span>${esc(p.comment)}</div>`;
+function prevNoteHtml(sid, d, topic){
+  const p=prevNote(sid,d,topic); if(!p) return "";
+  return `<div class="nt prev"><span class="pl">${topic?esc(topic)+" · ":""}в прошлый раз, ${fmtDate(p.date)}</span>${esc(p.comment)}</div>`;
 }
 function openSlotEdit(sl){
   detailSid=null;
@@ -2292,7 +2317,9 @@ function openSlotEdit(sl){
   else if(s==="moved") body=`<div class="hint">${e.toDate?"Перенесено на "+fmtDate(e.toDate)+(e.toTime?", "+e.toTime:"")+".":"Дата переноса ещё не назначена."}${child&&child.type!=="makeup"?" Перенесённое занятие уже отмечено — если отменить перенос, отметка тоже удалится.":""}</div>`;
   openModal(`<h3>${esc(st.name)} · ${fmtDate(sl.d)}</h3>
     ${body}
-    ${s==="lesson"?prevNoteHtml(st.id,sl.d).replace('class="nt prev"','class="nt prev" style="margin-top:12px"'):""}
+    ${s==="lesson"?`<label for="eTopic">Тема занятия</label><input id="eTopic" list="eTopics" value="${esc(topicOf(e,st))}" placeholder="Например: Алгебра — необязательно">
+      <datalist id="eTopics">${knownTopics(st).map(t=>`<option value="${esc(t)}">`).join("")}</datalist>
+      <div id="ePrev">${prevNoteHtml(st.id,sl.d,topicOf(e,st)).replace('class="nt prev"','class="nt prev" style="margin-top:12px"')}</div>`:""}
     <label for="eCom">Заметка: что прошли, что задано</label><input id="eCom" value="${esc(e.comment||"")}" placeholder="Например: дроби, задано № 12–15">
     <div class="mlinks"><button class="small-link" type="button" id="eUndo">${s==="moved"?"Отменить перенос":"Снять отметку — занятие снова станет неотмеченным"}</button></div>
     <div class="foot">
@@ -2302,10 +2329,12 @@ function openSlotEdit(sl){
     $("eCost").textContent = ($("eTrial")&&$("eTrial").checked) ? "Занятие бесплатное." : (st.price>0?"Стоимость: "+rub(num($("eH").value)*rateOf(e,st)):""); };
   if($("eH")) $("eH").oninput=eCostUpd;
   if($("eTrial")) $("eTrial").onchange=eCostUpd;
+  if($("eTopic")) $("eTopic").oninput=()=>{ $("ePrev").innerHTML=prevNoteHtml(st.id,sl.d,$("eTopic").value.trim()).replace('class="nt prev"','class="nt prev" style="margin-top:12px"'); };
   $("eClose").onclick=closeModal;
   $("eUndo").onclick=()=>{ undoSlot(e); closeModal(); };
   $("eSave").onclick=()=>{
     const patch={comment:$("eCom").value.trim()};
+    if($("eTopic")){ const t=$("eTopic").value.trim(); if(t!==topicOf(e,st)) patch.topic=t; }
     if($("eH")){ const h=num($("eH").value); if(!(h>0)) return; patch.hours=h; }
     if($("eTrial")) patch.trial=$("eTrial").checked;
     change(()=>_set(e.id,x=>({...x,...patch}))); closeModal();
@@ -2330,7 +2359,7 @@ function openSetDate(id){
     const childId=uid();
     change(()=>{
       _set(e.id,x=>({...x,toDate:d,toTime:tm,child:childId}));
-      _add({id:childId,sid:e.sid,date:d,slot:"makeup",type:"makeup",time:tm,hours:h,fromDate:e.date,parent:e.id,comment:""});
+      _add({id:childId,sid:e.sid,date:d,slot:"makeup",type:"makeup",time:tm,hours:h,fromDate:e.date,parent:e.id,comment:"",topic:topicOf(e)});
     });
     closeModal();
   };
@@ -2642,7 +2671,7 @@ function openStudentForm(sid){
     let prices=(st.prices||[]).slice();
     if(newPrice!==(st.price||0)){ const pf=$("sPriceFrom").value||today(); prices=prices.filter(x=>x.from!==pf).concat([{from:pf,price:newPrice}]).sort((a,b)=>a.from<b.from?-1:1); }
     const pair=$("sPair").value;
-    const upd={...st,name,sched,prices,pair,perWeek,price:newPrice,hours:num($("sH").value)||1,mode:$("sMode").value,note:$("sNote").value.trim(),
+    const upd={...st,name,sched,prices,pair,perWeek,subj:subjFromRows(st,rows),price:newPrice,hours:num($("sH").value)||1,mode:$("sMode").value,note:$("sNote").value.trim(),
       oneoff:$("sOneoff").checked,last:$("sLast").value.trim(),group:$("sGroup").value.trim(),payMethod:$("sPayM").value,
       contractNo:$("sContractNo").value.trim(),contractDate:$("sContractDate").value,
       grade:$("sGrade").value.trim(),subject:$("sSubject").value.trim(),goal:$("sGoal").value.trim(),
@@ -3004,7 +3033,7 @@ function openImport(){
 if(typeof module!=="undefined" && module.exports){
   module.exports={_t:{
     set:(st,mo)=>{ students=st; normStudents(); months=mo||{}; },
-    students:()=>students, months:()=>months, snapPlan, prevNote, fillAutoCopies, openBackup,
+    students:()=>students, months:()=>months, snapPlan, prevNote, topicOf, fillAutoCopies, openBackup,
     slotsOn, slotStatus, groupSlots, markDone, markDay, undoSlot, findEv,
     costOf, balanceOf, monthStats, planOf, rateAt, payCheck, registryRows, journalRows,
     monthPulse, freeSlots, reportDue, reportPeriodFor, parentText, tplText, fullName,
