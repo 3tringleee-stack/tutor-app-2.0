@@ -2087,7 +2087,7 @@ function schedEditor(id, rows, defDur){
       <select data-k="dur" aria-label="Длительность, ${WD_LONG[r.w]}">${durOptions(r.dur)}</select>
       <button class="undo" type="button" data-sdel="${r.w}" title="Убрать этот день" aria-label="Убрать ${WD_LONG[r.w]}">${ICO.cross}</button>
       <input class="ssubj" type="text" list="${id}Topics" value="${esc(r.subj||"")}" data-k="subj" placeholder="Тема дня — например, Алгебра (необязательно)" aria-label="Тема, ${WD_LONG[r.w]}"></div>`;
-  const html=()=>`<div class="sched" id="${id}"><datalist id="${id}Topics">${["Алгебра","Геометрия","Теория","Практика","Пробник"].map(t=>`<option value="${t}">`).join("")}</datalist>
+  const html=()=>`<div class="sched" id="${id}"><datalist id="${id}Topics">${["ОГЭ","ЕГЭ","Алгебра","Геометрия","Теория","Практика","Пробник"].map(t=>`<option value="${t}">`).join("")}</datalist>
       <div class="wdpick">${WD_ORDER.map(w=>`<button type="button" data-sw="${w}" aria-pressed="${st.rows.some(r=>r.w===w)}">${WD[w]}</button>`).join("")}</div>
       <div class="srows">${st.rows.length?WD_ORDER.map(w=>st.rows.find(r=>r.w===w)).filter(Boolean).map(rowHTML).join(""):'<div class="hint" style="margin:6px 0 0">Нажмите на день недели — появится строка для времени и длительности.</div>'}</div></div>`;
   const read=()=>{ const el=$(id); if(!el) return; el.querySelectorAll(".srow").forEach(rw=>{ const r=st.rows.find(x=>x.w===+rw.dataset.w); if(!r) return;
@@ -2288,7 +2288,7 @@ function topicChip(t){ return t?`<span class="topic" style="--h:${topicHue(t)}">
 function knownTopics(st){
   const set=new Set(Object.values((st&&st.subj)||{}).filter(Boolean));
   allEvents().forEach(e=>{ if(st&&e.sid===st.id&&e.topic) set.add(e.topic); });
-  ["Алгебра","Геометрия","Теория","Практика","Пробник","Разбор д/з"].forEach(x=>set.add(x));
+  ["ОГЭ","ЕГЭ","Алгебра","Геометрия","Теория","Практика","Пробник","Разбор д/з"].forEach(x=>set.add(x));
   return [...set];
 }
 /* Заметка с прошлого проведённого занятия — той же темы, если темы заданы */
