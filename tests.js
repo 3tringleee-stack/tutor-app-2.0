@@ -262,6 +262,13 @@ console.log("\n15. Тексты для родителей — без машин�
   eq("отмена без оплаты и оплата видны", rows.some(r=>r.k==="cfree")&&rows.some(r=>r.k==="pay"&&r.sum===2400), true);
   eq("заметки скрыты, пока их не включили", rows.find(r=>r.k==="done").note, "");
   eq("ключ записи в снимок не попадает", JSON.stringify(sn).includes("kkkk"), false);
+  // «платит за месяц»: родителю — реальный долг за проведённые, а не весь план месяца
+  T.set([S({id:"q",name:"Саша",price:1500,hours:1,mode:"month",share:{id:"y".repeat(22),wk:"k".repeat(32)},sched:sch([2,6],"13:00",1)})],{"2026-09":[
+    {id:"a",sid:"q",type:"payment",date:"2026-09-08",amount:10500},
+    ...["01","05","08","12","15","19"].map((d,i)=>({id:"s"+i,sid:"q",type:"lesson",date:"2026-09-"+d,hours:1}))],
+    "2026-10":["03","06","10"].map((d,i)=>({id:"o"+i,sid:"q",type:"lesson",date:"2026-10-"+d,hours:1}))});
+  const sq=T.shareSnapshot(T.students()[0]);
+  eq("месячная оплата: родитель видит долг 3 000 ₽, а не план октября", sq.bal+"|"+sq.pay, "-3000|null");
 }
 
 console.log("\n" + (fail? `ПРОВАЛЕНО: ${fail}, пройдено: ${pass}` : `Все проверки пройдены: ${pass}`));

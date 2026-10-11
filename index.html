@@ -2644,7 +2644,7 @@ function shareSnapshot(st){
   const t=today(), key=t.slice(0,7), now=new Date();
   const wdOf=d=>WD[parse(d).getDay()].toLowerCase();
   const rowsFor=k=>(months[k]||[]).filter(e=>e.sid===st.id && e.date<=t && ["lesson","cancel","moved","skip","payment"].includes(e.type))
-    .sort((a,c)=>a.date<c.date?-1:a.date>c.date?1:0).map(e=>{
+    .sort((a,c)=>a.date<c.date?-1:a.date>c.date?1:(a.time||"99")<(c.time||"99")?-1:(a.time||"99")>(c.time||"99")?1:0).map(e=>{
       const base={d:fmtDate(e.date),wd:wdOf(e.date),t:e.type==="payment"?"":(e.time||"")};
       if(e.type==="payment") return {...base,k:"pay",sum:Math.round(+e.amount||0)};
       if(e.type==="lesson") return {...base,k:e.trial?"trial":"done",h:fmtH(hoursOf(e,st)),sum:Math.round(costOf(e,st)),note:(st.share&&st.share.notes&&e.comment)?e.comment:""};
@@ -2656,10 +2656,9 @@ function shareSnapshot(st){
   const next=[];
   for(let i=0;i<21&&next.length<4;i++){ const d=addDays(t,i);
     slotsOn(d).filter(sl=>sl.st.id===st.id && slotStatus(sl)==="open").forEach(sl=>{ if(next.length<4) next.push({d:fmtDate(d),wd:wdOf(d),t:sl.time||""}); }); }
-  const pc = st.mode==="month" ? payCheck(key).find(x=>x.st.id===st.id) : null;
   const per = st.price>0 ? Math.round(rateAt(st,t)*(durFor(st,t)||st.hours||1)) : 0;
   return {v:1,name:st.name,tutor:tutorName(),bal:Math.round(balanceOf(st).balance),per,
-    pay:pc?{label:MONTHS[+key.slice(5)-1],left:pc.left}:null,months:mons.reverse(),next,
+    pay:null,months:mons.reverse(),next,
     upd:`${fmtDate(t)} в ${pad(now.getHours())}:${pad(now.getMinutes())}`};
 }
 const shareState={}; let shareTimer=null;

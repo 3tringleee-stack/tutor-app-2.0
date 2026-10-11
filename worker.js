@@ -97,11 +97,8 @@ const KIND = {
 };
 function balanceLines(d) {
   const L = [];
-  if (d.pay) {
-    if (d.pay.left > 0) L.push(`К оплате за ${d.pay.label}: <b>${rubS(d.pay.left)}</b>`);
-    else L.push(`${d.pay.label[0].toUpperCase() + d.pay.label.slice(1)} оплачен ✅`);
-    if (d.bal > 0 && d.pay.left <= 0) L.push(`На балансе: ${rubS(d.bal)}`);
-  } else if (d.bal < 0) L.push(`Долг: <b>${rubS(-d.bal)}</b>`);
+  /* Родитель видит то же, что репетитор: долг за уже проведённые занятия или аванс. План на месяц вперёд не показываем. */
+  if (d.bal < 0) L.push(`Долг: <b>${rubS(-d.bal)}</b>`);
   else if (d.bal > 0) L.push(`Оплачено вперёд: <b>${rubS(d.bal)}</b>` + (d.per > 0 && d.bal >= d.per ? ` — это примерно ${Math.floor(d.bal / d.per)} ${pluralRu(Math.floor(d.bal / d.per), "занятие", "занятия", "занятий")}` : ""));
   else L.push("Долга нет, всё оплачено ✅");
   return L;
@@ -125,13 +122,24 @@ function shareText(d, maxRows) {
 }
 const shareKeyboard = (id, origin) => ({ inline_keyboard: [[{ text: "🔄 Обновить", callback_data: "r:" + id }], [{ text: "Подробнее в браузере", url: `${origin}/p/${id}` }]] });
 const GONE = "Эта ссылка больше не действует. Попросите у преподавателя новую.";
+const plainText = (t) => t.replace(/<[^>]+>/g, "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&amp;/g, "&");
+/* Отправить сообщение родителю. Если Telegram отклонил оформление или кнопки — отправить простым текстом
+   и дописать причину, чтобы её было видно прямо в чате. */
+async function sendShare(env, method, body) {
+  const r = await tg(env, method, body);
+  if (r && r.ok) return r;
+  const why = (r && r.description) || "нет ответа";
+  const plain = { ...body, text: plainText(body.text) + "\n\n(техническая заметка: " + why + ")" };
+  delete plain.parse_mode; delete plain.reply_markup;
+  return tg(env, method, plain);
+}
 
 function sharePage(d) {
   const blocks = (d.months || []).filter((m) => m.rows && m.rows.length).map((m) => `<h2>${escH(m.label)}</h2><ul>${m.rows.map((r) => {
     const k = KIND[r.k] || ["•", () => ""];
     return `<li class="${escH(r.k)}"><span class="ic">${k[0]}</span><div><b>${escH(r.d)} ${escH(r.wd || "")}${r.t ? ", " + escH(r.t) : ""}</b><span>${escH(k[1](r))}</span>${r.note ? `<em>${escH(r.note)}</em>` : ""}</div></li>`; }).join("")}</ul>`).join("");
   const next = d.next && d.next.length ? `<h2>Ближайшие занятия</h2><ul>${d.next.map((n) => `<li><span class="ic">🗓</span><div><b>${escH(n.wd)} ${escH(n.d)}${n.t ? ", " + escH(n.t) : ""}</b></div></li>`).join("")}</ul>` : "";
-  const neg = d.pay ? d.pay.left > 0 : d.bal < 0;
+  const neg = d.bal < 0;
   return `<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${escH(d.name)} — занятия и оплата</title><meta name="robots" content="noindex">
 <style>:root{--bg:#F5F4F2;--paper:#fff;--ink:#24202B;--muted:#7A7486;--line:#E7E2DC;--red:#A8405A;--green:#3C7A63}
@@ -161,7 +169,7 @@ async function onUpdate(update, env, origin) {
   if (cq && /^r:/.test(cq.data || "")) {
     const id = cq.data.slice(2), sh = await readShare(env, id);
     await tg(env, "answerCallbackQuery", { callback_query_id: cq.id, text: sh ? "Обновлено" : "Ссылка больше не действует" });
-    if (cq.message) await tg(env, "editMessageText", { chat_id: cq.message.chat.id, message_id: cq.message.message_id, parse_mode: "HTML",
+    if (cq.message) await sendShare(env, "editMessageText", { chat_id: cq.message.chat.id, message_id: cq.message.message_id, parse_mode: "HTML",
       text: sh ? shareText(sh.data, 40) : GONE, reply_markup: sh ? shareKeyboard(id, origin) : undefined, disable_web_page_preview: true });
     return;
   }
@@ -173,8 +181,8 @@ async function onUpdate(update, env, origin) {
   const pm = text.match(/^\/start\s+p_([A-Za-z0-9_-]{16,40})$/);
   if (pm) {
     const sh = await readShare(env, pm[1]);
-    if (!sh) return tg(env, "sendMessage", { chat_id, text: GONE });
-    return tg(env, "sendMessage", { chat_id, parse_mode: "HTML", text: shareText(sh.data, 40), reply_markup: shareKeyboard(pm[1], origin), disable_web_page_preview: true });
+    if (!sh) return tg(env, "sendMessage", { chat_id, text: GONE + (env.SHARES ? "" : "\n\n(техническая заметка: у бота не подключено хранилище SHARES)") });
+    return sendShare(env, "sendMessage", { chat_id, parse_mode: "HTML", text: shareText(sh.data, 40), reply_markup: shareKeyboard(pm[1], origin), disable_web_page_preview: true });
   }
   if (/^\/start\b/.test(text)) {
     return tg(env, "sendMessage", { chat_id, text: WELCOME(msg.from && msg.from.first_name), reply_markup: markup });
@@ -202,8 +210,25 @@ export default {
         { command: "help", description: "Как пользоваться" },
       ] });
       const ok = hook.ok && cmds.ok;
-      return new Response(ok ? "Готово: бот подключён. Напишите ему /start.\nКнопка «Открыть Табель» ведёт на: " + env.APP_URL : "Ошибка: " + JSON.stringify({ hook, cmds }),
+      const dns = !hook.ok && /resolve host|name resolution/i.test(hook.description || "");
+      return new Response(ok ? "Готово: бот подключён. Напишите ему /start.\nКнопка «Открыть Табель» ведёт на: " + env.APP_URL
+        : dns ? "Telegram на минуту не смог найти адрес бота — это сбой на стороне Telegram, а не у вас.\nОбновите эту страницу через 2–3 минуты. Прежняя настройка бота при этом не сбилась.\n\n(" + hook.description + ")"
+        : "Ошибка: " + JSON.stringify({ hook, cmds }),
         { status: ok ? 200 : 500, headers: { "content-type": "text/plain; charset=utf-8" } });
+    }
+
+    // Проверка связи Telegram → бот: /status?key=<WEBHOOK_SECRET>
+    if (request.method === "GET" && url.pathname === "/status") {
+      if (!env.WEBHOOK_SECRET || url.searchParams.get("key") !== env.WEBHOOK_SECRET) return new Response("Нет доступа", { status: 403 });
+      const info = (await tg(env, "getWebhookInfo", {})).result || {};
+      const when = info.last_error_date ? new Date(info.last_error_date * 1000).toLocaleString("ru-RU", { timeZone: "Europe/Moscow" }) : "";
+      const lines = [
+        "Адрес вебхука: " + (info.url || "НЕ ЗАДАН — откройте /setup?key=…"),
+        "Ждут доставки сообщений: " + (info.pending_update_count || 0),
+        info.last_error_message ? "Последняя ошибка (" + when + " МСК): " + info.last_error_message : "Ошибок доставки нет ✅",
+        "Хранилище ссылок SHARES: " + (env.SHARES ? "подключено ✅" : "не подключено"),
+      ];
+      return new Response(lines.join("\n"), { headers: { "content-type": "text/plain; charset=utf-8" } });
     }
 
     // Ссылки для родителей
@@ -220,7 +245,13 @@ export default {
     // Сообщения от Telegram
     if (request.method === "POST" && url.pathname === "/hook") {
       if (request.headers.get("X-Telegram-Bot-Api-Secret-Token") !== env.WEBHOOK_SECRET) return new Response("forbidden", { status: 403 });
-      try { await onUpdate(await request.json(), env, url.origin); } catch (e) { /* не роняем вебхук: Telegram будет повторять */ }
+      let upd = null;
+      try { upd = await request.json(); await onUpdate(upd, env, url.origin); }
+      catch (e) {
+        /* не роняем вебхук (Telegram будет повторять), но пишем причину в чат — иначе ошибку не найти */
+        const chat = upd && ((upd.message && upd.message.chat) || (upd.callback_query && upd.callback_query.message && upd.callback_query.message.chat));
+        if (chat && chat.type === "private") { try { await tg(env, "sendMessage", { chat_id: chat.id, text: "Что-то пошло не так. Перешлите это сообщение автору «Табеля».\n\n(техническая заметка: " + String(e && e.message || e).slice(0, 300) + ")" }); } catch (_) {} }
+      }
       return new Response("ok");
     }
 

@@ -83,5 +83,11 @@ ok("несуществующая ссылка — без ошибок", calls[0]
 r = await worker.fetch(new Request("https://bot.example.workers.dev/p/<script>"), envS);
 ok("мусор в адресе не ломает воркер", r.status !== 500);
 
+// если Telegram отклонил оформление — родитель всё равно получает сообщение, а в нём видна причина
+kv.set("s:" + ID, JSON.stringify({ w: "x", data, at: 1 }));
+let first = true; calls.length = 0;
+globalThis.fetch = async (u, o) => { const b = JSON.parse(o.body); calls.push({ method: u.split("/").pop(), body: b }); if (first && b.parse_mode) { first = false; return { json: async () => ({ ok: false, description: "Bad Request: can't parse entities" }) }; } return { json: async () => ({ ok: true }) }; };
+await hookS(pm("/start p_" + ID));
+ok("отклонённое оформление → простой текст с причиной", calls.length === 2 && !calls[1].body.parse_mode && calls[1].body.text.includes("can't parse entities") && calls[1].body.text.includes("Аня"));
 console.log(fail ? `\nПРОВАЛЕНО: ${fail}` : `\nБот: все проверки пройдены (${pass})`);
 process.exit(fail ? 1 : 0);
