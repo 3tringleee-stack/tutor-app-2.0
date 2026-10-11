@@ -467,7 +467,7 @@ textarea{min-height:60px;resize:vertical}
 (function(){
 let students = [];
 let months = {};
-let db = null, mode = "loading";
+let db = null, mode = "loading", dataReady = false;   /* dataReady: записи загружены — можно обновлять ссылки родителей */
 const LS_KEY = "tutor-ledger-v1";
 let tab = "today";
 
@@ -710,7 +710,10 @@ async function refreshCloud(){
 
 /* ---------- storage ---------- */
 const BUILD="2026.10.05";
-const AUTHOR_TG="";   /* ник автора в Telegram без @ — для кнопки «Написать автору» */
+const AUTHOR_TG="";
+/* Ссылки для родителей: адрес воркера бота (Cloudflare) и имя бота без @ */
+const SHARE_API="https://tabel-bot.3tringleee.workers.dev";
+const BOT_NAME="tabelapp_bot";   /* ник автора в Telegram без @ — для кнопки «Написать автору» */
 let queue = Promise.resolve();
 
 /* Два устройства. Запоминаем, какими записи были при последней синхронизации (base).
@@ -891,23 +894,23 @@ async function init(){
         }catch(e){ showError(e); }
       } else stamp("Подключено к Telegram");
     } else stamp("Загружено из Telegram");
-    render(); return;
+    dataReady=true; render(); return;
   }
   if(CS_RAW && !CS_OK){
-    mode="local"; loadLocal(); normStudents();
+    mode="local"; loadLocal(); normStudents(); dataReady=true;
     $("syncState").textContent="Обновите Telegram: в этой версии нет синхронизации. Пока записи хранятся только на этом устройстве.";
     render(); return;
   }
   let d=null;
   try{ d = window.claude && window.claude.use ? await window.claude.use("db") : null; }catch(e){ d=null; }
-  if(!d){ mode="local"; loadLocal(); normStudents(); $("syncState").textContent="Записи хранятся в этом браузере"; render(); return; }
+  if(!d){ mode="local"; loadLocal(); normStudents(); dataReady=true; $("syncState").textContent="Записи хранятся в этом браузере"; render(); return; }
   db=d; mode="db";
   $("syncState").textContent="Синхронизация…";
   const lost=()=>{ $("syncState").textContent="Связь с хранилищем потеряна — обновите страницу"; };
   db.doc("config/students").onSnapshot(snap=>{
     if(snap.exists){ const l=snap.data().list; if(Array.isArray(l)) { students=l.map(s=>({...s})); normStudents(); } }
     $("syncState").textContent="Сохраняется автоматически";
-    render();
+    dataReady=true; render();
   }, lost);
   db.collection("months").onSnapshot(snap=>{
     const next={};
@@ -1141,6 +1144,7 @@ function render(){
   const pendC=allEvents().filter(e=>e.type==="cancel"&&e.status==="pending").length;
   $("sumPend").textContent=unmarkedPast().length+pendC;
   renderMovesNotice();
+  scheduleShares();
 
   const miss=[];
   const np=active().filter(s=>!(s.price>0)).map(s=>fullName(s));
@@ -1694,6 +1698,7 @@ function parentText(st,key){
   else if(r.bal>0) L.push(st.mode==="prepaid"&&st.price>0 ? `Оплачено вперёд ещё на ${fmtH(Math.floor(r.bal/st.price*2)/2)} занятий.` : `На балансе ${rub(r.bal)} — пойдёт в счёт следующих занятий.`);
   else L.push(held.length?"Все занятия оплачены.":"Задолженности нет.");
   while(L[L.length-1]==="") L.pop();
+  if(st.share) L.push("", "Занятия и баланс онлайн: "+shareTg(st));
   return L.join("\n")+signLine();
 }
 /* есть ли что сообщить родителю за месяц */
@@ -2417,8 +2422,9 @@ function tplText(id,st){
       return `${hi} Занятие${on?` ${on}`:""} придётся перенести. Подскажите, когда вам удобно, — подберу время.${sign}`;
     case "pay": {
       const pc = st ? payCheck(today().slice(0,7)).find(x=>x.st.id===st.id) : null;
-      if(pc && pc.left>0) return `${hi} Напоминаю об оплате занятий${st.mode==="month"&&pc.wait>0?` за ${MONTHS[+today().slice(5,7)-1]}`:""}: ${rub(pc.left)}. Чек или скриншот перевода можно прислать сюда.${sign}`;
-      if(bal<0) return `${hi} Напоминаю об оплате занятий: ${rub(-bal)}. Чек или скриншот перевода можно прислать сюда.${sign}`;
+      const lk = st && st.share ? `\n\nЗанятия и баланс: ${shareTg(st)}` : "";
+      if(pc && pc.left>0) return `${hi} Напоминаю об оплате занятий${st.mode==="month"&&pc.wait>0?` за ${MONTHS[+today().slice(5,7)-1]}`:""}: ${rub(pc.left)}. Чек или скриншот перевода можно прислать сюда.${lk}${sign}`;
+      if(bal<0) return `${hi} Напоминаю об оплате занятий: ${rub(-bal)}. Чек или скриншот перевода можно прислать сюда.${lk}${sign}`;
       return `${hi} Сейчас ничего оплачивать не нужно${bal>0?`: занятия оплачены вперёд, на балансе ${rub(bal)}`:""}. Напомню, когда подойдёт время следующей оплаты.${sign}`;
     }
     case "thanks":
@@ -2601,6 +2607,7 @@ function renderDetail(){
       ${(st.parent||contact)?`<div class="setrow"><div class="lbl"><b>Родитель</b><span>${esc(st.parent||"")}${st.parent&&contact?" · ":""}${contact}</span></div></div>`:""}
       ${pairSt?`<div class="setrow"><div class="lbl"><b>Пара</b><span>занимается вместе с ${esc(pairSt.name)}</span></div></div>`:""}
       ${st.about?`<div class="setrow"><div class="lbl"><b>Заметки</b><span>${esc(st.about)}</span></div></div>`:""}
+      ${SHARE_API&&!DEMO?`<div class="setrow"><div class="lbl"><b>Ссылка для родителя</b><span id="dShareSt" data-sid="${st.id}">${shareStatusText(st)}</span></div><div class="ctl"><button class="sm${st.share?"":" done"}" type="button" id="dShare">${st.share?"Открыть":"Создать"}</button></div></div>`:""}
     </div>
     <div class="monthbar" style="margin-top:12px"><button class="sm" type="button" id="mPrev" aria-label="Предыдущий месяц">‹</button><strong>${cap(monthLabel(detailMonth))}</strong><button class="sm" type="button" id="mNext" aria-label="Следующий месяц">›</button></div>
     <div class="stats">
@@ -2617,6 +2624,7 @@ function renderDetail(){
   $("dEdit").onclick=()=>openStudentForm(st.id);
   if($("dSched")) $("dSched").onclick=()=>openSchedule(st.id);
   $("dTpl").onclick=()=>openTemplates(st.id);
+  if($("dShare")) $("dShare").onclick=()=>openShare(st.id);
   $("det").querySelectorAll("[data-del]").forEach(btn=>btn.onclick=ev=>{
     ev.stopPropagation(); const id=btn.dataset.del;
     if(pendingDelete===id){ pendingDelete=null; change(()=>{ const e=findEv(id); if(e&&e.child){ const c=findEv(e.child); if(c) _resetOrDelete(c); } _del(id); }); }
@@ -2625,6 +2633,108 @@ function renderDetail(){
   splitModal();
 }
 
+/* ---------- ссылка для родителя ----------
+   Снимок баланса и занятий одного ученика уходит на сервер бота; родитель смотрит его
+   в Telegram (t.me/бот?start=p_…) или в браузере. Обновляется сам после каждого изменения. */
+function randKey(n){ const a=new Uint8Array(n); crypto.getRandomValues(a); return btoa(String.fromCharCode(...a)).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,""); }
+const shareTg = st => `https://t.me/${BOT_NAME}?start=p_${st.share.id}`;
+const shareWeb = st => `${SHARE_API}/p/${st.share.id}`;
+function tutorName(){ const o=(ui.owner||"").trim(); if(o) return o; const u=tgUser(); return u?[u.first_name,u.last_name].filter(Boolean).join(" "):""; }
+function shareSnapshot(st){
+  const t=today(), key=t.slice(0,7), now=new Date();
+  const wdOf=d=>WD[parse(d).getDay()].toLowerCase();
+  const rowsFor=k=>(months[k]||[]).filter(e=>e.sid===st.id && e.date<=t && ["lesson","cancel","moved","skip","payment"].includes(e.type))
+    .sort((a,c)=>a.date<c.date?-1:a.date>c.date?1:0).map(e=>{
+      const base={d:fmtDate(e.date),wd:wdOf(e.date),t:e.type==="payment"?"":(e.time||"")};
+      if(e.type==="payment") return {...base,k:"pay",sum:Math.round(+e.amount||0)};
+      if(e.type==="lesson") return {...base,k:e.trial?"trial":"done",h:fmtH(hoursOf(e,st)),sum:Math.round(costOf(e,st)),note:(st.share&&st.share.notes&&e.comment)?e.comment:""};
+      if(e.type==="cancel") return {...base,k:e.status==="charged"?"cpaid":e.status==="free"?"cfree":"cpend",sum:Math.round(costOf(e,st))};
+      if(e.type==="moved") return {...base,k:"moved",to:e.toDate?fmtDate(e.toDate)+(e.toTime?", "+e.toTime:""):""};
+      return {...base,k:"skip"};
+    });
+  const mons=[shiftMonth(key,-1),key].map(k=>({label:cap(monthLabel(k)),rows:rowsFor(k)})).filter(m=>m.rows.length);
+  const next=[];
+  for(let i=0;i<21&&next.length<4;i++){ const d=addDays(t,i);
+    slotsOn(d).filter(sl=>sl.st.id===st.id && slotStatus(sl)==="open").forEach(sl=>{ if(next.length<4) next.push({d:fmtDate(d),wd:wdOf(d),t:sl.time||""}); }); }
+  const pc = st.mode==="month" ? payCheck(key).find(x=>x.st.id===st.id) : null;
+  const per = st.price>0 ? Math.round(rateAt(st,t)*(durFor(st,t)||st.hours||1)) : 0;
+  return {v:1,name:st.name,tutor:tutorName(),bal:Math.round(balanceOf(st).balance),per,
+    pay:pc?{label:MONTHS[+key.slice(5)-1],left:pc.left}:null,months:mons.reverse(),next,
+    upd:`${fmtDate(t)} в ${pad(now.getHours())}:${pad(now.getMinutes())}`};
+}
+const shareState={}; let shareTimer=null;
+function sentMap(){ try{ return JSON.parse(localStorage.getItem("tutor-share-sent")||"{}")||{}; }catch(e){ return {}; } }
+function scheduleShares(){ if(DEMO || !SHARE_API || !dataReady || !students.some(s=>s.share)) return; clearTimeout(shareTimer); shareTimer=setTimeout(()=>pushShares(),2500); }
+async function pushShares(onlyId){
+  const sent=sentMap();
+  for(const st of students){
+    if(!st.share || !st.share.id || (onlyId && st.share.id!==onlyId)) continue;
+    const id=st.share.id, snap=shareSnapshot(st), sig=hstr(JSON.stringify({...snap,upd:""}));
+    if(!onlyId && sent[id]===sig && !(shareState[id] && shareState[id].ok===false)) continue;
+    shareState[id]={busy:true}; paintShareStatus(st);
+    try{
+      const r=await fetch(SHARE_API+"/share",{method:"POST",headers:{"content-type":"application/json","x-write-key":st.share.wk},body:JSON.stringify({id,data:snap})});
+      const j=await r.json().catch(()=>({}));
+      if(!r.ok || !j.ok) throw new Error(j.error||("HTTP "+r.status));
+      sent[id]=sig; shareState[id]={ok:true,at:new Date()};
+    }catch(e){ shareState[id]={ok:false,err:String(e&&e.message||e)}; }
+    paintShareStatus(st);
+  }
+  try{ localStorage.setItem("tutor-share-sent",JSON.stringify(sent)); }catch(e){}
+}
+function shareStatusText(st){
+  if(!st.share) return "Родитель сам смотрит баланс и занятия в Telegram — без вопросов «сколько я должна?»";
+  const s=shareState[st.share.id];
+  if(!s) return "Ссылка работает · обновляется сама после каждого изменения";
+  if(s.busy) return "Обновляется…";
+  if(s.ok) return `Ссылка работает · обновлено в ${pad(s.at.getHours())}:${pad(s.at.getMinutes())}`;
+  if(s.err==="no_kv") return '<span class="warn">Сервер ссылок ещё не настроен — см. инструкцию к боту.</span>';
+  if(s.err==="forbidden") return '<span class="warn">Сервер не принял ключ ссылки. Отключите её и создайте новую.</span>';
+  return '<span class="warn">Не удалось обновить — нет связи с сервером. Попробуем снова при следующем изменении.</span>';
+}
+function paintShareStatus(st){ if(typeof document==="undefined") return; ["dShareSt","shSt"].forEach(i=>{ const el=document.getElementById(i); if(el && st.share && el.dataset.sid===st.id) el.innerHTML=shareStatusText(st); }); }
+function shareMessage(st){
+  return `Добрый день${st.parent?", "+st.parent:""}! Теперь проведённые занятия, переносы, оплаты и баланс всегда можно посмотреть по ссылке — она откроется в Telegram:\n${shareTg(st)}\n\nЕсли удобнее в браузере:\n${shareWeb(st)}`+signLine();
+}
+function openShare(sid){
+  const st=byId(sid); if(!st) return;
+  if(!st.share){
+    students=students.map(x=>x.id===sid?{...x,share:{id:randKey(16),wk:randKey(24),notes:false}}:x);
+    saveStudents(); const ns=byId(sid); pushShares(ns.share.id);
+  }
+  const s=byId(sid); detailSid=null;
+  openModal(`<h3>Ссылка для родителя · ${esc(s.name)}</h3>
+    <div class="hint" style="margin-top:-4px">Родитель открывает ссылку и видит баланс, проведённые занятия, переносы, оплаты и ближайшие уроки. Всё обновляется само, когда вы отмечаете занятия.</div>
+    <div class="hint" id="shSt" data-sid="${s.id}" style="margin-top:8px">${shareStatusText(s)}</div>
+    <label for="shMsg">Сообщение для родителя</label>
+    <textarea id="shMsg" style="min-height:120px">${esc(shareMessage(s))}</textarea>
+    <div class="foot" style="margin-top:8px"><button class="primary" type="button" id="shSend">Отправить в Telegram</button><button class="secondary" type="button" id="shCopy">Скопировать</button></div>
+    <div class="hint" id="shHint"></div>
+    <label style="margin-top:10px"><input type="checkbox" id="shNotes" ${s.share.notes?"checked":""} style="width:auto;margin-right:6px">Показывать родителю заметки к занятиям (что прошли и что задано)</label>
+    <div class="mlinks"><button class="small-link" type="button" id="shOff">Отключить ссылку</button></div>
+    <div class="hint" id="shOffHint"></div>
+    <div class="foot"><button class="secondary" type="button" id="shBack">Назад</button></div>`);
+  $("shBack").onclick=()=>openDetail(sid);
+  $("shCopy").onclick=()=>copyText($("shMsg"),$("shHint"));
+  $("shSend").onclick=()=>{
+    const u=`https://t.me/share/url?url=${encodeURIComponent(shareTg(s))}&text=${encodeURIComponent("Занятия и баланс — всегда актуальные, откроется в Telegram")}`;
+    try{ if(TG && TG.openTelegramLink) TG.openTelegramLink(u); else window.open(u,"_blank"); }catch(e){ window.open(u,"_blank"); }
+  };
+  $("shNotes").onchange=()=>{ const v=$("shNotes").checked; students=students.map(x=>x.id===sid?{...x,share:{...x.share,notes:v}}:x); saveStudents(); pushShares(s.share.id); };
+  $("shOff").onclick=async()=>{
+    const b=$("shOff");
+    if(!b.dataset.sure){ b.dataset.sure="1"; b.textContent="Точно отключить? Родитель больше не сможет открыть ссылку"; return; }
+    b.disabled=true; b.textContent="Отключаем…";
+    try{
+      const r=await fetch(`${SHARE_API}/share?id=${encodeURIComponent(s.share.id)}`,{method:"DELETE",headers:{"x-write-key":s.share.wk}});
+      const j=await r.json().catch(()=>({}));
+      if(!r.ok && r.status!==501) throw new Error(j.error||r.status);
+    }catch(e){ b.disabled=false; b.dataset.sure=""; b.textContent="Отключить ссылку"; $("shOffHint").innerHTML='<span class="warn">Нет связи с сервером — ссылка пока работает. Попробуйте ещё раз, когда появится интернет.</span>'; return; }
+    students=students.map(x=>{ if(x.id!==sid) return x; const {share,...rest}=x; return rest; });
+    saveStudents(); openDetail(sid);
+  };
+  splitModal();
+}
 function openStudentForm(sid){
   const st = sid ? byId(sid) : {id:null,name:"",last:"",group:"",payMethod:"",contractNo:"",contractDate:"",perWeek:1,price:0,hours:1,note:"",mode:"",sched:[],prices:[],pair:"",grade:"",subject:"",goal:"",parent:"",contact:"",about:"",archived:false};
   detailSid=null;
@@ -3055,7 +3165,7 @@ function openImport(){
 if(typeof module!=="undefined" && module.exports){
   module.exports={_t:{
     set:(st,mo)=>{ students=st; normStudents(); months=mo||{}; },
-    students:()=>students, months:()=>months, snapPlan, prevNote, topicOf, fillAutoCopies, openBackup,
+    students:()=>students, months:()=>months, snapPlan, prevNote, topicOf, shareSnapshot, fillAutoCopies, openBackup,
     slotsOn, slotStatus, groupSlots, markDone, markDay, undoSlot, findEv,
     costOf, balanceOf, monthStats, planOf, rateAt, payCheck, registryRows, journalRows,
     monthPulse, freeSlots, reportDue, reportPeriodFor, parentText, tplText, fullName,

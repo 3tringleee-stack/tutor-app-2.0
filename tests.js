@@ -247,5 +247,22 @@ console.log("\n15. Тексты для родителей — без машин�
   eq("без темы — последняя заметка любого занятия", (T.prevNote("t","2026-10-20","")||{}).id, "a2");
 }
 
+{
+  console.log("\n18. Ссылка для родителя: что попадает в снимок");
+  T.set([S({id:"p",name:"Аня",last:"Иванова",price:1200,hours:1,mode:"after",share:{id:"x".repeat(22),wk:"k".repeat(32),notes:false},sched:sch([2],"16:00",1)})],{"2026-10":[
+    {id:"l1",sid:"p",type:"lesson",date:"2026-10-06",time:"16:00",hours:1,comment:"Дроби"},
+    {id:"c1",sid:"p",type:"cancel",status:"free",date:"2026-10-08",time:"16:00"},
+    {id:"m1",sid:"p",type:"moved",date:"2026-10-09",time:"16:00",toDate:null},
+    {id:"y1",sid:"p",type:"payment",date:"2026-10-02",amount:2400}]});
+  const sn=T.shareSnapshot(T.students()[0]);
+  const rows=(sn.months.find(m=>/Октябрь/.test(m.label))||{rows:[]}).rows;
+  eq("в снимке только имя, без фамилии", sn.name+"|"+JSON.stringify(sn).includes("Иванова"), "Аня|false");
+  eq("баланс: оплачено 2400, проведено 1200", sn.bal, 1200);
+  eq("проведённое занятие со стоимостью", rows.some(r=>r.k==="done"&&r.sum===1200&&r.d==="06.10"), true);
+  eq("отмена без оплаты и оплата видны", rows.some(r=>r.k==="cfree")&&rows.some(r=>r.k==="pay"&&r.sum===2400), true);
+  eq("заметки скрыты, пока их не включили", rows.find(r=>r.k==="done").note, "");
+  eq("ключ записи в снимок не попадает", JSON.stringify(sn).includes("kkkk"), false);
+}
+
 console.log("\n" + (fail? `ПРОВАЛЕНО: ${fail}, пройдено: ${pass}` : `Все проверки пройдены: ${pass}`));
 process.exit(fail?1:0);

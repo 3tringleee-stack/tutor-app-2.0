@@ -5,6 +5,8 @@
 //   APP_URL         — адрес приложения на GitHub Pages, https://… (тип «Text»)
 //   WEBHOOK_SECRET  — любая строка из латиницы и цифр, 20+ символов (тип «Secret»)
 //   AUTHOR_TG       — ваш ник в Telegram без @, необязательно (тип «Text»)
+// Ссылки для родителей: хранилище KV с именем привязки SHARES (Storage → KV → Create,
+// затем воркер → Settings → Bindings → KV namespace, имя переменной SHARES).
 // После сохранения откройте один раз: https://<адрес воркера>/setup?key=<WEBHOOK_SECRET>
 
 const WELCOME = (name) =>
@@ -43,6 +45,108 @@ function checkAppUrl(u) {
 
 const openButton = (url) => ({ inline_keyboard: [[{ text: "Открыть Табель", web_app: { url } }]] });
 
+/* ---------- ссылки для родителей ----------
+   Приложение репетитора присылает сюда снимок: баланс и занятия одного ученика.
+   Родитель смотрит его в боте (t.me/<бот>?start=p_<id>) или на странице /p/<id>.
+   Перезаписать или удалить снимок можно только с ключом, который знает приложение. */
+const SHARE_TTL = 60 * 60 * 24 * 180;           // полгода без обновлений — удаляется сам
+const okId = (s) => /^[A-Za-z0-9_-]{16,40}$/.test(s || "");
+const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "content-type, x-write-key", "Access-Control-Max-Age": "86400" };
+const jsonRes = (o, status = 200) => new Response(JSON.stringify(o), { status, headers: { "content-type": "application/json; charset=utf-8", ...CORS } });
+async function sha(s) { const b = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)); return [...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, "0")).join(""); }
+const escH = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const rubS = (n) => Math.round(+n || 0).toLocaleString("ru-RU").replace(/\u202f|\u00a0/g, " ") + " ₽";
+function pluralRu(n, a, b, c) { n = Math.abs(n) % 100; const m = n % 10; return n > 10 && n < 20 ? c : m > 1 && m < 5 ? b : m === 1 ? a : c; }
+
+async function readShare(env, id) {
+  if (!env.SHARES || !okId(id)) return null;
+  const raw = await env.SHARES.get("s:" + id);
+  if (!raw) return null;
+  try { return JSON.parse(raw); } catch (e) { return null; }
+}
+async function saveShare(request, env) {
+  if (!env.SHARES) return jsonRes({ ok: false, error: "no_kv" }, 501);
+  const wk = request.headers.get("x-write-key") || "";
+  const body = await request.text();
+  if (body.length > 64000) return jsonRes({ ok: false, error: "too_big" }, 413);
+  let o; try { o = JSON.parse(body); } catch (e) { return jsonRes({ ok: false, error: "bad_json" }, 400); }
+  if (!okId(o.id) || wk.length < 20 || !o.data || typeof o.data !== "object") return jsonRes({ ok: false, error: "bad_request" }, 400);
+  const h = await sha(wk), old = await readShare(env, o.id);
+  if (old && old.w !== h) return jsonRes({ ok: false, error: "forbidden" }, 403);
+  await env.SHARES.put("s:" + o.id, JSON.stringify({ w: h, data: o.data, at: Date.now() }), { expirationTtl: SHARE_TTL });
+  return jsonRes({ ok: true });
+}
+async function deleteShare(request, env, id) {
+  if (!env.SHARES) return jsonRes({ ok: false, error: "no_kv" }, 501);
+  const old = await readShare(env, id);
+  if (!old) return jsonRes({ ok: true });
+  if (old.w !== await sha(request.headers.get("x-write-key") || "")) return jsonRes({ ok: false, error: "forbidden" }, 403);
+  await env.SHARES.delete("s:" + id);
+  return jsonRes({ ok: true });
+}
+
+const KIND = {
+  done: ["✅", (r) => `проведено · ${r.h}${r.sum ? " · " + rubS(r.sum) : ""}`],
+  trial: ["✅", (r) => `пробное занятие · бесплатно`],
+  cpaid: ["⏸", (r) => `отмена с оплатой${r.sum ? " · " + rubS(r.sum) : ""}`],
+  cfree: ["❌", () => "отмена, без оплаты"],
+  cpend: ["❌", () => "отмена"],
+  moved: ["↪️", (r) => r.to ? `перенос на ${r.to}` : "перенос, новая дата уточняется"],
+  skip: ["🏖", () => "не было (каникулы)"],
+  pay: ["💳", (r) => `оплата +${rubS(r.sum)}`],
+};
+function balanceLines(d) {
+  const L = [];
+  if (d.pay) {
+    if (d.pay.left > 0) L.push(`К оплате за ${d.pay.label}: <b>${rubS(d.pay.left)}</b>`);
+    else L.push(`${d.pay.label[0].toUpperCase() + d.pay.label.slice(1)} оплачен ✅`);
+    if (d.bal > 0 && d.pay.left <= 0) L.push(`На балансе: ${rubS(d.bal)}`);
+  } else if (d.bal < 0) L.push(`Долг: <b>${rubS(-d.bal)}</b>`);
+  else if (d.bal > 0) L.push(`Оплачено вперёд: <b>${rubS(d.bal)}</b>` + (d.per > 0 && d.bal >= d.per ? ` — это примерно ${Math.floor(d.bal / d.per)} ${pluralRu(Math.floor(d.bal / d.per), "занятие", "занятия", "занятий")}` : ""));
+  else L.push("Долга нет, всё оплачено ✅");
+  return L;
+}
+function shareText(d, maxRows) {
+  const L = [`<b>${escH(d.name)}</b>`, ...(d.tutor ? ["Преподаватель: " + escH(d.tutor)] : []), ""];
+  L.push(...balanceLines(d));
+  let rows = 0;
+  for (const m of d.months || []) {
+    if (!m.rows || !m.rows.length || rows >= maxRows) continue;
+    L.push("", `<b>${escH(m.label)}</b>`);
+    for (const r of m.rows) {
+      if (rows++ >= maxRows) break;
+      const k = KIND[r.k] || ["•", () => ""];
+      L.push(`${k[0]} ${escH(r.d)} ${escH(r.wd || "")}${r.t ? ", " + escH(r.t) : ""} — ${escH(k[1](r))}${r.note ? "\n      <i>" + escH(r.note) + "</i>" : ""}`);
+    }
+  }
+  if (d.next && d.next.length) L.push("", "<b>Ближайшие занятия</b>", ...d.next.map((n) => `• ${escH(n.wd)} ${escH(n.d)}${n.t ? ", " + escH(n.t) : ""}`));
+  L.push("", `<i>Обновлено ${escH(d.upd || "")}</i>`);
+  return L.join("\n");
+}
+const shareKeyboard = (id, origin) => ({ inline_keyboard: [[{ text: "🔄 Обновить", callback_data: "r:" + id }], [{ text: "Подробнее в браузере", url: `${origin}/p/${id}` }]] });
+const GONE = "Эта ссылка больше не действует. Попросите у преподавателя новую.";
+
+function sharePage(d) {
+  const blocks = (d.months || []).filter((m) => m.rows && m.rows.length).map((m) => `<h2>${escH(m.label)}</h2><ul>${m.rows.map((r) => {
+    const k = KIND[r.k] || ["•", () => ""];
+    return `<li class="${escH(r.k)}"><span class="ic">${k[0]}</span><div><b>${escH(r.d)} ${escH(r.wd || "")}${r.t ? ", " + escH(r.t) : ""}</b><span>${escH(k[1](r))}</span>${r.note ? `<em>${escH(r.note)}</em>` : ""}</div></li>`; }).join("")}</ul>`).join("");
+  const next = d.next && d.next.length ? `<h2>Ближайшие занятия</h2><ul>${d.next.map((n) => `<li><span class="ic">🗓</span><div><b>${escH(n.wd)} ${escH(n.d)}${n.t ? ", " + escH(n.t) : ""}</b></div></li>`).join("")}</ul>` : "";
+  const neg = d.pay ? d.pay.left > 0 : d.bal < 0;
+  return `<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${escH(d.name)} — занятия и оплата</title><meta name="robots" content="noindex">
+<style>:root{--bg:#F5F4F2;--paper:#fff;--ink:#24202B;--muted:#7A7486;--line:#E7E2DC;--red:#A8405A;--green:#3C7A63}
+@media (prefers-color-scheme:dark){:root{--bg:#17151C;--paper:#201D28;--ink:#EDE9F2;--muted:#9E97AC;--line:#332E3E;--red:#E8909F;--green:#88C9AE}}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 -apple-system,system-ui,"Segoe UI",Roboto,sans-serif}
+main{max-width:560px;margin:0 auto;padding:20px 16px 40px}.card{background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:16px 18px;margin-bottom:12px}
+h1{font-size:22px;margin:0}.sub{color:var(--muted);margin-top:2px}.bal{font-size:16px;margin-top:12px}.bal b{font-size:22px;color:${neg ? "var(--red)" : "var(--green)"}}
+h2{font-size:15px;margin:4px 0 8px}ul{list-style:none;margin:0;padding:0}li{display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--line)}li:first-child{border-top:0}
+li .ic{width:22px;flex:none;text-align:center}li b{display:block;font-weight:600}li span{color:var(--muted)}li em{display:block;font-style:normal;font-size:13.5px;margin-top:2px}
+.upd{color:var(--muted);font-size:13px;text-align:center}</style></head><body><main>
+<div class="card"><h1>${escH(d.name)}</h1>${d.tutor ? `<div class="sub">Преподаватель: ${escH(d.tutor)}</div>` : ""}<div class="bal">${balanceLines(d).join("<br>")}</div></div>
+${blocks ? `<div class="card">${blocks}</div>` : ""}${next ? `<div class="card">${next}</div>` : ""}
+<div class="upd">Обновлено ${escH(d.upd || "")} · «Табель»</div></main></body></html>`;
+}
+
 async function tg(env, method, body) {
   const r = await fetch(`https://api.telegram.org/bot${env.BOT_TOKEN}/${method}`, {
     method: "POST",
@@ -52,12 +156,26 @@ async function tg(env, method, body) {
   return r.json();
 }
 
-async function onUpdate(update, env) {
+async function onUpdate(update, env, origin) {
+  const cq = update.callback_query;
+  if (cq && /^r:/.test(cq.data || "")) {
+    const id = cq.data.slice(2), sh = await readShare(env, id);
+    await tg(env, "answerCallbackQuery", { callback_query_id: cq.id, text: sh ? "Обновлено" : "Ссылка больше не действует" });
+    if (cq.message) await tg(env, "editMessageText", { chat_id: cq.message.chat.id, message_id: cq.message.message_id, parse_mode: "HTML",
+      text: sh ? shareText(sh.data, 40) : GONE, reply_markup: sh ? shareKeyboard(id, origin) : undefined, disable_web_page_preview: true });
+    return;
+  }
   const msg = update.message;
   if (!msg || !msg.chat || msg.chat.type !== "private") return;   // только личные чаты
   const text = (msg.text || "").trim();
   const chat_id = msg.chat.id;
   const markup = openButton(env.APP_URL);
+  const pm = text.match(/^\/start\s+p_([A-Za-z0-9_-]{16,40})$/);
+  if (pm) {
+    const sh = await readShare(env, pm[1]);
+    if (!sh) return tg(env, "sendMessage", { chat_id, text: GONE });
+    return tg(env, "sendMessage", { chat_id, parse_mode: "HTML", text: shareText(sh.data, 40), reply_markup: shareKeyboard(pm[1], origin), disable_web_page_preview: true });
+  }
   if (/^\/start\b/.test(text)) {
     return tg(env, "sendMessage", { chat_id, text: WELCOME(msg.from && msg.from.first_name), reply_markup: markup });
   }
@@ -78,7 +196,7 @@ export default {
       if (!env.BOT_TOKEN || !/^https:\/\//.test(env.APP_URL || "")) return new Response("Не заданы BOT_TOKEN или APP_URL (адрес должен начинаться с https://)", { status: 500, ...txt });
       const appProblem = checkAppUrl(env.APP_URL);
       if (appProblem) return new Response(appProblem, { status: 500, ...txt });
-      const hook = await tg(env, "setWebhook", { url: `${url.origin}/hook`, secret_token: env.WEBHOOK_SECRET, allowed_updates: ["message"], drop_pending_updates: true });
+      const hook = await tg(env, "setWebhook", { url: `${url.origin}/hook`, secret_token: env.WEBHOOK_SECRET, allowed_updates: ["message", "callback_query"], drop_pending_updates: true });
       const cmds = await tg(env, "setMyCommands", { commands: [
         { command: "start", description: "Открыть Табель" },
         { command: "help", description: "Как пользоваться" },
@@ -88,10 +206,21 @@ export default {
         { status: ok ? 200 : 500, headers: { "content-type": "text/plain; charset=utf-8" } });
     }
 
+    // Ссылки для родителей
+    if (url.pathname === "/share" && request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
+    if (url.pathname === "/share" && request.method === "POST") return saveShare(request, env);
+    if (url.pathname === "/share" && request.method === "DELETE") return deleteShare(request, env, url.searchParams.get("id"));
+    const pp = url.pathname.match(/^\/p\/([A-Za-z0-9_-]{16,40})$/);
+    if (pp && request.method === "GET") {
+      const sh = await readShare(env, pp[1]);
+      const html = sh ? sharePage(sh.data) : `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Ссылка не действует</title><body style="font:16px system-ui;padding:40px 20px;text-align:center">${GONE}</body>`;
+      return new Response(html, { status: sh ? 200 : 404, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" } });
+    }
+
     // Сообщения от Telegram
     if (request.method === "POST" && url.pathname === "/hook") {
       if (request.headers.get("X-Telegram-Bot-Api-Secret-Token") !== env.WEBHOOK_SECRET) return new Response("forbidden", { status: 403 });
-      try { await onUpdate(await request.json(), env); } catch (e) { /* не роняем вебхук: Telegram будет повторять */ }
+      try { await onUpdate(await request.json(), env, url.origin); } catch (e) { /* не роняем вебхук: Telegram будет повторять */ }
       return new Response("ok");
     }
 

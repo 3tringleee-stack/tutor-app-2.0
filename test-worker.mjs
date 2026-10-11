@@ -5,7 +5,8 @@ globalThis.fetch = async (u, o) => { calls.push({ method: u.split("/").pop(), bo
 const env = { BOT_TOKEN: "123:abc", APP_URL: "https://example.github.io/tabel/", WEBHOOK_SECRET: "s3cret_s3cret_s3cret", AUTHOR_TG: "nikita" };
 let pass = 0, fail = 0;
 const ok = (n, c, x) => { c ? (pass++, console.log("  ✓ " + n)) : (fail++, console.log("  ✗ " + n + (x ? "  → " + x : ""))); };
-const hook = (msg, secret = env.WEBHOOK_SECRET) => worker.fetch(new Request("https://bot.example.workers.dev/hook", { method: "POST", headers: { "X-Telegram-Bot-Api-Secret-Token": secret }, body: JSON.stringify({ message: msg }) }), env);
+const hook = (msg, secret = env.WEBHOOK_SECRET) => worker.fetch(new Request("https://bot.example.workers.dev/hook", { method: "POST", headers: { "X-Telegram-Bot-Api-Secret-Token": secret }, body: JSON.stringify({ message: msg }) }), hookEnv);
+let hookEnv = env;
 const pm = (text) => ({ chat: { id: 42, type: "private" }, from: { first_name: "Анна" }, text });
 
 calls.length = 0; let r = await hook(pm("/start"));
@@ -35,5 +36,52 @@ r = await worker.fetch(new Request("https://bot.example.workers.dev/setup?key=" 
 ok("адрес репозитория вместо сайта — понятная подсказка, куда смотреть", r.status === 500 && (await r.text()).includes("Settings → Pages"));
 r = await worker.fetch(new Request("https://bot.example.workers.dev/setup?key=" + env.WEBHOOK_SECRET), env);
 ok("после настройки показывает, куда ведёт кнопка", (await r.text()).includes(env.APP_URL));
+
+// ---------- ссылки для родителей ----------
+const kv = new Map();
+const KV = { get: async (k) => kv.get(k) ?? null, put: async (k, v) => { kv.set(k, v); }, delete: async (k) => { kv.delete(k); } };
+const envS = { ...env, SHARES: KV };
+const ID = "AbCdEfGhIjKlMnOpQrStUv", WK = "write_key_write_key_write_key_1";
+const data = { v: 1, name: "Аня", tutor: "Никита Сергеевич", bal: -2400, per: 1200, upd: "11.10 в 16:52",
+  months: [{ label: "Октябрь 2026", rows: [{ d: "07.10", wd: "ср", t: "16:00", k: "done", h: "1 ч", sum: 1200, note: "Логарифмы" }, { d: "09.10", wd: "пт", t: "16:00", k: "moved", to: "" }, { d: "05.10", wd: "пн", k: "pay", sum: 6000 }] }],
+  next: [{ d: "14.10", wd: "ср", t: "16:00" }] };
+const post = (body, wk = WK, e = envS) => worker.fetch(new Request("https://bot.example.workers.dev/share", { method: "POST", headers: { "x-write-key": wk, "content-type": "application/json" }, body: JSON.stringify(body) }), e);
+console.log("\nСсылки для родителей"); hookEnv = envS;
+r = await post({ id: ID, data });
+ok("приложение сохраняет снимок", r.status === 200 && kv.has("s:" + ID));
+ok("ключ записи хранится только как хеш", !kv.get("s:" + ID).includes(WK));
+r = await post({ id: ID, data: { ...data, bal: 0 } }, "another_key_another_key_another");
+ok("чужой ключ не может перезаписать", r.status === 403 && JSON.parse(kv.get("s:" + ID)).data.bal === -2400);
+r = await post({ id: ID, data }, WK, env);
+ok("без хранилища — понятная ошибка, а не падение", r.status === 501);
+r = await worker.fetch(new Request("https://bot.example.workers.dev/share", { method: "OPTIONS" }), envS);
+ok("браузер может обращаться из приложения (CORS)", r.status === 204 && r.headers.get("Access-Control-Allow-Origin") === "*");
+r = await worker.fetch(new Request("https://bot.example.workers.dev/p/" + ID), envS);
+let html = await r.text();
+ok("страница для родителя: имя, долг, занятия", r.status === 200 && html.includes("Аня") && html.includes("Долг") && html.includes("2 400 ₽") && html.includes("проведено"));
+ok("страница не индексируется поисковиками", r.headers.get("x-robots-tag") === "noindex");
+calls.length = 0; await hook(pm("/start p_" + ID));
+const ptxt = calls[0] && calls[0].body.text;
+ok("родитель открывает ссылку в боте — видит баланс", ptxt && ptxt.includes("Аня") && ptxt.includes("Долг: <b>2 400 ₽</b>"), ptxt && ptxt.slice(0, 80));
+ok("перенос без даты понятен родителю", ptxt && ptxt.includes("новая дата уточняется"));
+ok("ближайшие занятия и кнопка «Обновить»", ptxt && ptxt.includes("Ближайшие занятия") && calls[0].body.reply_markup.inline_keyboard[0][0].callback_data === "r:" + ID);
+ok("родителю не показываем кнопку приложения репетитора", !JSON.stringify(calls[0].body.reply_markup).includes("web_app"));
+calls.length = 0;
+await worker.fetch(new Request("https://bot.example.workers.dev/hook", { method: "POST", headers: { "X-Telegram-Bot-Api-Secret-Token": env.WEBHOOK_SECRET }, body: JSON.stringify({ callback_query: { id: "q1", data: "r:" + ID, message: { chat: { id: 42 }, message_id: 7 } } }) }), envS);
+ok("«Обновить» перерисовывает сообщение", calls.some(c => c.method === "editMessageText" && c.body.message_id === 7) && calls.some(c => c.method === "answerCallbackQuery"));
+r = await worker.fetch(new Request("https://bot.example.workers.dev/share?id=" + ID, { method: "DELETE", headers: { "x-write-key": "nope_nope_nope_nope_nope" } }), envS);
+ok("отключить ссылку без ключа нельзя", r.status === 403 && kv.has("s:" + ID));
+r = await worker.fetch(new Request("https://bot.example.workers.dev/share?id=" + ID, { method: "DELETE", headers: { "x-write-key": WK } }), envS);
+ok("репетитор отключает ссылку", r.status === 200 && !kv.has("s:" + ID));
+calls.length = 0; await hook(pm("/start p_" + ID));
+ok("после отключения родитель видит «ссылка не действует»", calls[0] && calls[0].body.text.includes("больше не действует"));
+r = await worker.fetch(new Request("https://bot.example.workers.dev/p/" + ID), envS);
+ok("и страница тоже", r.status === 404);
+const hookS = (msg) => worker.fetch(new Request("https://bot.example.workers.dev/hook", { method: "POST", headers: { "X-Telegram-Bot-Api-Secret-Token": env.WEBHOOK_SECRET }, body: JSON.stringify({ message: msg }) }), envS);
+calls.length = 0; await hookS(pm("/start p_" + "x".repeat(22)));
+ok("несуществующая ссылка — без ошибок", calls[0] && calls[0].body.text.includes("больше не действует"));
+r = await worker.fetch(new Request("https://bot.example.workers.dev/p/<script>"), envS);
+ok("мусор в адресе не ломает воркер", r.status !== 500);
+
 console.log(fail ? `\nПРОВАЛЕНО: ${fail}` : `\nБот: все проверки пройдены (${pass})`);
 process.exit(fail ? 1 : 0);
