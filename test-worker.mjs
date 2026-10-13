@@ -1,5 +1,5 @@
 // Проверка бота без Telegram и Cloudflare: node test-worker.mjs
-import worker from "./worker.js";
+import worker, { tgUserFrom, digestText, runDigests } from "./worker.js";
 const calls = [];
 globalThis.fetch = async (u, o) => { calls.push({ method: u.split("/").pop(), body: JSON.parse(o.body) }); return { json: async () => ({ ok: true }) }; };
 const env = { BOT_TOKEN: "123:abc", APP_URL: "https://example.github.io/tabel/", WEBHOOK_SECRET: "s3cret_s3cret_s3cret", AUTHOR_TG: "nikita" };
@@ -89,5 +89,48 @@ let first = true; calls.length = 0;
 globalThis.fetch = async (u, o) => { const b = JSON.parse(o.body); calls.push({ method: u.split("/").pop(), body: b }); if (first && b.parse_mode) { first = false; return { json: async () => ({ ok: false, description: "Bad Request: can't parse entities" }) }; } return { json: async () => ({ ok: true }) }; };
 await hookS(pm("/start p_" + ID));
 ok("отклонённое оформление → простой текст с причиной", calls.length === 2 && !calls[1].body.parse_mode && calls[1].body.text.includes("can't parse entities") && calls[1].body.text.includes("Аня"));
+
+// ---------- утренняя сводка ----------
+console.log("\nУтренняя сводка");
+const hm = async (key, msg) => { const k = await crypto.subtle.importKey("raw", typeof key === "string" ? new TextEncoder().encode(key) : key, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]); return new Uint8Array(await crypto.subtle.sign("HMAC", k, new TextEncoder().encode(msg))); };
+async function makeInit(user, token, authDate = Math.floor(Date.now() / 1000)) {
+  const p = new URLSearchParams({ auth_date: String(authDate), query_id: "q1", user: JSON.stringify(user) });
+  const dcs = [...p.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([k, v]) => k + "=" + v).join("\n");
+  const h = [...(await hm(await hm("WebAppData", token), dcs))].map((x) => x.toString(16).padStart(2, "0")).join("");
+  p.set("hash", h); return p.toString();
+}
+const me = { id: 777, first_name: "Никита" };
+const init = await makeInit(me, env.BOT_TOKEN);
+ok("подпись Telegram проверяется", (await tgUserFrom(init, env.BOT_TOKEN))?.id === 777);
+ok("поддельная подпись не проходит", (await tgUserFrom(init.replace(/hash=[0-9a-f]{4}/, "hash=0000"), env.BOT_TOKEN)) === null);
+ok("подпись чужого бота не проходит", (await tgUserFrom(init, "999:other")) === null);
+ok("старая подпись (больше недели) не проходит", (await tgUserFrom(await makeInit(me, env.BOT_TOKEN, 1000), env.BOT_TOKEN)) === null);
+KV.list = async ({ prefix }) => ({ keys: [...kv.keys()].filter((k) => k.startsWith(prefix)).map((name) => ({ name })), list_complete: true });
+const dig = { today: "2026-10-13", unmarked: 1, debt: 4500, moves: ["Марта"], days: {
+  "2026-10-13": [{ t: "16:00", n: "Вера", tp: "Алгебра", done: true }, { t: "18:00", n: "Рома" }],
+  "2026-10-14": [{ t: "16:00", n: "Вера", tp: "Геометрия" }, { t: "19:30", n: "Саша" }] } };
+const postD = (body) => worker.fetch(new Request("https://bot.example.workers.dev/digest", { method: "POST", body: JSON.stringify(body) }), envS);
+r = await postD({ initData: init, data: dig, hour: 8, tz: -180 });
+ok("приложение включает сводку", r.status === 200 && kv.has("d:777"));
+r = await postD({ initData: init.replace(/hash=[0-9a-f]{4}/, "hash=0000"), data: dig });
+ok("без настоящей подписи сводку не включить", r.status === 403);
+const t14 = digestText(JSON.parse(kv.get("d:777")), "2026-10-14").text;
+ok("утром: занятия на сегодня с темами", t14.includes("Сегодня, ср 14.10, 2 занятия") && t14.includes("• 16:00 Вера · Геометрия") && t14.includes("• 19:30 Саша"), t14.slice(0, 90));
+ok("неотмеченные: прежние + вчерашние, которые не отметили", t14.includes("Не отмечено: 2 занятия"));
+ok("переносы без даты и долг", t14.includes("Марта") && t14.includes("4 500 ₽"));
+calls.length = 0;
+globalThis.fetch = async (u, o) => { calls.push({ method: u.split("/").pop(), body: JSON.parse(o.body) }); return { json: async () => ({ ok: true }) }; };
+let n = await runDigests(envS, Date.parse("2026-10-14T04:30:00Z"));      // 07:30 МСК — рано
+ok("до выбранного часа не пишет", n === 0 && calls.length === 0);
+n = await runDigests(envS, Date.parse("2026-10-14T05:10:00Z"));          // 08:10 МСК
+ok("в 8 утра по Москве присылает сводку с кнопкой приложения", n === 1 && calls[0].body.chat_id === 777 && calls[0].body.reply_markup.inline_keyboard[0][0].web_app);
+n = await runDigests(envS, Date.parse("2026-10-14T05:40:00Z"));
+ok("второй раз за день не пишет", n === 0);
+kv.set("d:777", JSON.stringify({ ...JSON.parse(kv.get("d:777")), sent: "", data: { today: "2026-10-18", days: {} } }));
+calls.length = 0; n = await runDigests(envS, Date.parse("2026-10-18T05:10:00Z"));
+ok("пустой день без дел — не беспокоит", n === 0 && calls.length === 0);
+r = await worker.fetch(new Request("https://bot.example.workers.dev/digest", { method: "DELETE", body: JSON.stringify({ initData: init }) }), envS);
+ok("сводку можно выключить", r.status === 200 && !kv.has("d:777"));
+
 console.log(fail ? `\nПРОВАЛЕНО: ${fail}` : `\nБот: все проверки пройдены (${pass})`);
 process.exit(fail ? 1 : 0);

@@ -4,9 +4,9 @@
   "private": true,
   "description": "Табель — учёт занятий и оплат для репетитора",
   "scripts": {
-    "test": "node tests.js && node tests-sync.js",
+    "test": "node tests.js && node tests-sync.js && cd bot && node test-worker.mjs",
     "test:e2e": "node tests-e2e.js",
-    "test:all": "node tests.js && node tests-sync.js && node tests-e2e.js"
+    "test:all": "node tests.js && node tests-sync.js && node tests-e2e.js && cd bot && node test-worker.mjs"
   },
   "devDependencies": {
     "playwright": "^1.48.0"

@@ -1814,6 +1814,16 @@ Object.entries(ACCENTS).map(([k,v])=>`<option value="${k}" ${ui.accent===k?"sele
       </div>
 
       <div class="sheet box" style="margin-top:14px">
+        <h2>Утренняя сводка</h2>
+        <div class="hint" style="margin-top:0">Каждое утро бот присылает в Telegram: занятия на сегодня с темами, что не отмечено, переносы без даты и сколько вам должны. В выходной без дел — не беспокоит.</div>
+        <div class="setrow"><div class="lbl"><b>Присылать</b><span id="digSt">${digestStatusText()}</span></div>
+          <div class="ctl"><select id="uiDigest" ${TG&&SHARE_API?"":"disabled"}>
+            <option value="" ${!ui.digest?"selected":""}>Не присылать</option>
+            ${[6,7,8,9,10,11,12].map(h=>`<option value="${h}" ${+ui.digest===h?"selected":""}>в ${h}:00</option>`).join("")}
+          </select></div></div>
+      </div>
+
+      <div class="sheet box" style="margin-top:14px">
         <h2>О приложении</h2>
         <div class="setrow"><div class="lbl"><b>Версия ${BUILD}</b><span>Нашли ошибку — отправьте автору техническую строку: версия, устройство, число записей. Имён учеников в ней нет.</span></div>
           <div class="ctl"><button class="sm" type="button" data-copydiag="1">Скопировать</button>${AUTHOR_TG?` <button class="sm done" type="button" data-authorlink="1">Написать автору</button>`:""}</div></div>
@@ -1828,6 +1838,7 @@ function bindSettings(){
   if($("themePick")) $("themePick").onclick=e=>{ const b=e.target.closest("[data-theme]"); if(!b) return;
     applyTheme(b.dataset.theme); refresh(); render(); };
   $("uiTheme").onchange=()=>{ ui.theme=$("uiTheme").value; ui.themeId=""; saveUI(); };
+  if($("uiDigest")) $("uiDigest").onchange=()=>{ const v=+$("uiDigest").value||0; ui.digest=v||0; saveUI(); pushDigest(true, !v); };
   if($("uiOb")) $("uiOb").onclick=()=>{ ui.obHide=false; ui.obRep=false; ui.obForce=true; saveUI(); closeModal(); tab="today"; render(); };
   $("uiDense").onchange=()=>{ ui.dense=$("uiDense").checked; saveUI(); };
   const repHint=()=>{
@@ -2712,9 +2723,45 @@ function shareSnapshot(st){
     pay:null,months:mons.reverse(),next,
     upd:`${fmtDate(t)} в ${pad(now.getHours())}:${pad(now.getMinutes())}`};
 }
+/* ---------- утренняя сводка: план на неделю уходит боту, он пишет утром ---------- */
+let digestState=null;
+function digestData(){
+  const t=today(), days={};
+  for(let i=0;i<8;i++){ const d=addDays(t,i);
+    const list=slotsOn(d).filter(sl=>{ const s=slotStatus(sl); return s==="open"||s==="lesson"; })
+      .sort((a,b)=>(a.time||"99")<(b.time||"99")?-1:1)
+      .map(sl=>({t:sl.time||"",n:fullName(sl.st),tp:slotTopic(sl)||"",...(slotStatus(sl)==="lesson"?{done:true}:{})}));
+    if(list.length) days[d]=list; }
+  let debt=0; students.forEach(st=>{ const b=balanceOf(st).balance; if(b<0) debt+=-b; });
+  return {today:t,days,unmarked:unmarkedPast().length+allEvents().filter(e=>e.type==="cancel"&&e.status==="pending").length,
+    moves:waitingMoves().map(e=>byId(e.sid).name),debt:Math.round(debt)};
+}
+function digestStatusText(){
+  if(!TG) return "Доступно, когда приложение открыто в Telegram";
+  if(!ui.digest) return "Выключена";
+  const s=digestState;
+  if(!s || s.ok) return `Каждый день в ${ui.digest}:00 — от бота @${BOT_NAME}`;
+  if(s.err==="no_kv") return '<span class="warn">Сервер бота ещё не настроен</span>';
+  if(s.err==="bad_auth") return '<span class="warn">Telegram не подтвердил вход — закройте и откройте приложение</span>';
+  return '<span class="warn">Нет связи с ботом — попробуем позже</span>';
+}
+async function pushDigest(force, off){
+  if(!TG || !SHARE_API || DEMO || (!ui.digest && !off)) return;
+  const data=off?null:digestData(), sig=off?"off":hstr(JSON.stringify(data))+":"+ui.digest;
+  let last=""; try{ last=localStorage.getItem("tutor-digest-sent")||""; }catch(e){}
+  if(!force && sig===last) return;
+  try{
+    const r=await fetch(SHARE_API+"/digest",{method:"POST",headers:{"content-type":"application/json"},
+      body:JSON.stringify(off?{initData:TG.initData,off:true}:{initData:TG.initData,data,hour:ui.digest,tz:new Date().getTimezoneOffset()})});
+    const j=await r.json().catch(()=>({}));
+    if(!r.ok || !j.ok) throw new Error(j.error||("HTTP "+r.status));
+    digestState={ok:true}; try{ localStorage.setItem("tutor-digest-sent",sig); }catch(e){}
+  }catch(e){ digestState={ok:false,err:String(e&&e.message||e)}; }
+  const el=document.getElementById("digSt"); if(el) el.innerHTML=digestStatusText();
+}
 const shareState={}; let shareTimer=null;
 function sentMap(){ try{ return JSON.parse(localStorage.getItem("tutor-share-sent")||"{}")||{}; }catch(e){ return {}; } }
-function scheduleShares(){ if(DEMO || !SHARE_API || !dataReady || !students.some(s=>s.share)) return; clearTimeout(shareTimer); shareTimer=setTimeout(()=>pushShares(),2500); }
+function scheduleShares(){ if(DEMO || !SHARE_API || !dataReady || !(students.some(s=>s.share) || ui.digest)) return; clearTimeout(shareTimer); shareTimer=setTimeout(()=>{ pushShares(); pushDigest(false); },2500); }
 async function pushShares(onlyId){
   const sent=sentMap();
   for(const st of students){
@@ -3215,7 +3262,7 @@ function openImport(){
 if(typeof module!=="undefined" && module.exports){
   module.exports={_t:{
     set:(st,mo)=>{ students=st; normStudents(); months=mo||{}; },
-    students:()=>students, months:()=>months, snapPlan, prevNote, topicOf, shareSnapshot, inferTopic, lastNotesByTopic, notesBlockHtml, fillAutoCopies, openBackup,
+    students:()=>students, months:()=>months, digestData, snapPlan, prevNote, topicOf, shareSnapshot, inferTopic, lastNotesByTopic, notesBlockHtml, fillAutoCopies, openBackup,
     slotsOn, slotStatus, groupSlots, markDone, markDay, undoSlot, findEv,
     costOf, balanceOf, monthStats, planOf, rateAt, payCheck, registryRows, journalRows,
     monthPulse, freeSlots, reportDue, reportPeriodFor, parentText, tplText, fullName,

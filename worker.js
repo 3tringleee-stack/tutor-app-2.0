@@ -193,7 +193,96 @@ async function onUpdate(update, env, origin) {
   return tg(env, "sendMessage", { chat_id, text: OTHER, reply_markup: markup });
 }
 
+/* ---------- утренняя сводка репетитору ----------
+   Приложение (открытое в Telegram) присылает план на ближайшую неделю. Кто прислал — проверяем
+   по подписи Telegram (initData), поэтому чужой сводку не включит и спам не отправит.
+   Раз в час (Cron Trigger «0 * * * *») бот смотрит, у кого сейчас наступил выбранный час, и пишет. */
+const DIGEST_TTL = 60 * 60 * 24 * 30;          // приложение не открывали месяц — сводка сама выключается
+async function hmac(key, msg) {
+  const k = await crypto.subtle.importKey("raw", typeof key === "string" ? new TextEncoder().encode(key) : key, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  return new Uint8Array(await crypto.subtle.sign("HMAC", k, new TextEncoder().encode(msg)));
+}
+const hex = (b) => [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
+/* Проверка initData по документации Telegram Mini Apps. Возвращает пользователя или null. */
+async function tgUserFrom(initData, botToken, maxAgeSec = 7 * 24 * 3600) {
+  if (!initData || !botToken) return null;
+  const p = new URLSearchParams(initData), hash = p.get("hash");
+  if (!hash) return null;
+  p.delete("hash");
+  const dcs = [...p.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([k, v]) => k + "=" + v).join("\n");
+  const secret = await hmac("WebAppData", botToken);
+  if (hex(await hmac(secret, dcs)) !== hash) return null;
+  const age = Date.now() / 1000 - (+p.get("auth_date") || 0);
+  if (age > maxAgeSec) return null;
+  try { return JSON.parse(p.get("user") || "null"); } catch (e) { return null; }
+}
+async function saveDigest(request, env) {
+  if (!env.SHARES) return jsonRes({ ok: false, error: "no_kv" }, 501);
+  const body = await request.text();
+  if (body.length > 64000) return jsonRes({ ok: false, error: "too_big" }, 413);
+  let o; try { o = JSON.parse(body); } catch (e) { return jsonRes({ ok: false, error: "bad_json" }, 400); }
+  const u = await tgUserFrom(o.initData, env.BOT_TOKEN);
+  if (!u || !u.id) return jsonRes({ ok: false, error: "bad_auth" }, 403);
+  const key = "d:" + u.id;
+  if (request.method === "DELETE" || o.off) { await env.SHARES.delete(key); return jsonRes({ ok: true, off: true }); }
+  if (!o.data || typeof o.data !== "object") return jsonRes({ ok: false, error: "bad_request" }, 400);
+  const old = await env.SHARES.get(key);
+  let sent = ""; try { sent = old ? JSON.parse(old).sent || "" : ""; } catch (e) {}
+  const hour = Math.min(23, Math.max(0, Math.round(+o.hour || 8)));
+  const tz = Math.max(-840, Math.min(840, Math.round(+o.tz || -180)));
+  await env.SHARES.put(key, JSON.stringify({ chat: u.id, hour, tz, data: o.data, sent, at: Date.now() }), { expirationTtl: DIGEST_TTL });
+  return jsonRes({ ok: true });
+}
+const localNow = (tz, now = Date.now()) => new Date(now - tz * 60000);   // tz — как getTimezoneOffset() (МСК = −180)
+const isoDay = (d) => d.toISOString().slice(0, 10);
+const WD_RU = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"];
+function digestText(rec, today) {
+  const d = rec.data || {}, days = d.days || {};
+  const todays = (days[today] || []).filter((x) => !x.done);
+  // занятия, которые прошли с момента последнего открытия приложения и ещё не отмечены
+  let unmarked = +d.unmarked || 0;
+  for (const k of Object.keys(days)) if (k >= (d.today || today) && k < today) unmarked += days[k].filter((x) => !x.done).length;
+  const dt = new Date(today + "T12:00:00Z");
+  const head = `${WD_RU[dt.getUTCDay()]} ${today.slice(8)}.${today.slice(5, 7)}`;
+  const L = [];
+  if (todays.length) {
+    L.push(`Доброе утро! Сегодня, ${head}, ${todays.length} ${pluralRu(todays.length, "занятие", "занятия", "занятий")}:`);
+    todays.forEach((x) => L.push(`• ${x.t ? x.t + " " : ""}${x.n}${x.tp ? " · " + x.tp : ""}`));
+  } else L.push(`Доброе утро! Сегодня, ${head}, занятий по расписанию нет.`);
+  const extra = [];
+  if (unmarked > 0) extra.push(`⚠️ Не отмечено: ${unmarked} ${pluralRu(unmarked, "занятие", "занятия", "занятий")}`);
+  if (d.moves && d.moves.length) extra.push(`↪️ Переносы без новой даты: ${d.moves.join(", ")}`);
+  if (d.debt > 0) extra.push(`💰 Вам должны: ${rubS(d.debt)}`);
+  if (extra.length) L.push("", ...extra);
+  return { text: L.join("\n"), worth: todays.length > 0 || unmarked > 0 || (d.moves && d.moves.length > 0) };
+}
+async function runDigests(env, now = Date.now()) {
+  if (!env.SHARES || !env.SHARES.list) return 0;
+  let cursor, sentN = 0;
+  do {
+    const page = await env.SHARES.list({ prefix: "d:", cursor });
+    for (const k of page.keys) {
+      const raw = await env.SHARES.get(k.name); if (!raw) continue;
+      let rec; try { rec = JSON.parse(raw); } catch (e) { continue; }
+      const ln = localNow(rec.tz, now), today = isoDay(ln);
+      if (ln.getUTCHours() !== rec.hour || rec.sent === today) continue;
+      const { text, worth } = digestText(rec, today);
+      rec.sent = today;
+      if (worth) {
+        const r = await tg(env, "sendMessage", { chat_id: rec.chat, text, reply_markup: env.APP_URL ? openButton(env.APP_URL) : undefined });
+        if (r && r.ok) sentN++;
+        else if (r && r.error_code === 403) { await env.SHARES.delete(k.name); continue; }   // бот заблокирован — больше не пишем
+      }
+      await env.SHARES.put(k.name, JSON.stringify(rec), { expirationTtl: DIGEST_TTL });
+    }
+    cursor = page.list_complete ? null : page.cursor;
+  } while (cursor);
+  return sentN;
+}
+
+export { tgUserFrom, digestText, runDigests };
 export default {
+  async scheduled(event, env, ctx) { ctx.waitUntil(runDigests(env, event.scheduledTime || Date.now())); },
   async fetch(request, env) {
     const url = new URL(request.url);
 
@@ -227,9 +316,14 @@ export default {
         "Ждут доставки сообщений: " + (info.pending_update_count || 0),
         info.last_error_message ? "Последняя ошибка (" + when + " МСК): " + info.last_error_message : "Ошибок доставки нет ✅",
         "Хранилище ссылок SHARES: " + (env.SHARES ? "подключено ✅" : "не подключено"),
+        "Утренних сводок включено: " + (env.SHARES && env.SHARES.list ? (await env.SHARES.list({ prefix: "d:" })).keys.length : 0),
       ];
       return new Response(lines.join("\n"), { headers: { "content-type": "text/plain; charset=utf-8" } });
     }
+
+    // Утренняя сводка
+    if (url.pathname === "/digest" && request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
+    if (url.pathname === "/digest" && (request.method === "POST" || request.method === "DELETE")) return saveDigest(request, env);
 
     // Ссылки для родителей
     if (url.pathname === "/share" && request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
