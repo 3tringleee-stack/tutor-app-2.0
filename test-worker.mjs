@@ -1,5 +1,5 @@
 // Проверка бота без Telegram и Cloudflare: node test-worker.mjs
-import worker, { tgUserFrom, digestText, runDigests } from "./worker.js";
+import worker, { tgUserFrom, digestText, runDigests, runReminders, runLessonReminders } from "./worker.js";
 const calls = [];
 globalThis.fetch = async (u, o) => { calls.push({ method: u.split("/").pop(), body: JSON.parse(o.body) }); return { json: async () => ({ ok: true }) }; };
 const env = { BOT_TOKEN: "123:abc", APP_URL: "https://example.github.io/tabel/", WEBHOOK_SECRET: "s3cret_s3cret_s3cret", AUTHOR_TG: "nikita" };
@@ -131,6 +131,78 @@ calls.length = 0; n = await runDigests(envS, Date.parse("2026-10-18T05:10:00Z"))
 ok("пустой день без дел — не беспокоит", n === 0 && calls.length === 0);
 r = await worker.fetch(new Request("https://bot.example.workers.dev/digest", { method: "DELETE", body: JSON.stringify({ initData: init }) }), envS);
 ok("сводку можно выключить", r.status === 200 && !kv.has("d:777"));
+
+
+// ---------- напоминание родителю об оплате ----------
+console.log("\nНапоминание родителю об оплате");
+const RID = "RemindRemindRemind_123", RWK = "remind_write_key_remind_write";
+globalThis.fetch = async (u, o) => { calls.push({ method: u.split("/").pop(), body: JSON.parse(o.body) }); return { json: async () => ({ ok: true }) }; };
+await post({ id: RID, data: { ...data, bal: -3000, how: "перевод по номеру +7 900 000-00-00 (Т-Банк)", auto: "", tz: -180 } }, RWK);
+const remind = (wk = RWK) => worker.fetch(new Request("https://bot.example.workers.dev/remind", { method: "POST", headers: { "x-write-key": wk }, body: JSON.stringify({ id: RID }) }), envS);
+r = await remind(); let j = await r.json();
+ok("пока родитель не открыл ссылку — понятная ошибка", r.status === 409 && j.error === "no_subs");
+calls.length = 0; await hookS({ chat: { id: 501, type: "private" }, from: { first_name: "Ирина" }, text: "/start p_" + RID });
+ok("родитель открыл ссылку — подписан на напоминания", JSON.parse(kv.get("s:" + RID)).subs.includes(501));
+r = await post({ id: RID, data: { ...data, bal: -3000, how: "перевод по номеру +7 900 000-00-00 (Т-Банк)", auto: "", tz: -180 } }, RWK); j = await r.json();
+ok("обновление снимка не теряет подписчика и сообщает о нём приложению", j.subs === 1 && JSON.parse(kv.get("s:" + RID)).subs.length === 1);
+r = await remind("wrong_wrong_wrong_wrong_wrong"); ok("чужой ключ не может напомнить", r.status === 403);
+calls.length = 0; r = await remind(); j = await r.json();
+const rm = calls.find((c) => c.method === "sendMessage");
+ok("напоминание ушло родителю: сумма и как оплатить", r.status === 200 && j.sent === 1 && rm.body.chat_id === 501 && rm.body.text.includes("3 000 ₽") && rm.body.text.includes("Т-Банк"), rm && rm.body.text.slice(0, 80));
+ok("в напоминании кнопки «Подробнее» и «Не присылать»", rm.body.reply_markup.inline_keyboard.flat().map((b) => b.callback_data).join() === "r:" + RID + ",u:" + RID);
+r = await remind(); ok("повторно сразу — нельзя (не чаще раза в 12 часов)", r.status === 429);
+// автонапоминание по понедельникам
+let rec = JSON.parse(kv.get("s:" + RID)); rec.rem = 0; rec.data.auto = "week"; kv.set("s:" + RID, JSON.stringify(rec));
+calls.length = 0; let rn = await runReminders(envS, Date.parse("2026-10-14T07:10:00Z"));     // среда
+ok("автонапоминание не в понедельник — не шлёт", rn === 0 && calls.length === 0);
+rn = await runReminders(envS, Date.parse("2026-10-19T07:10:00Z"));                            // пн 10:10 МСК
+ok("понедельник, 10 утра — напоминает", rn === 1);
+rn = await runReminders(envS, Date.parse("2026-10-19T07:40:00Z"));
+ok("и только один раз", rn === 0);
+rec = JSON.parse(kv.get("s:" + RID)); rec.rem = 0; rec.data.bal = 500; kv.set("s:" + RID, JSON.stringify(rec));
+rn = await runReminders(envS, Date.parse("2026-10-26T07:10:00Z"));
+ok("долга нет — не напоминает", rn === 0);
+r = await remind(); ok("вручную при отсутствии долга — понятная ошибка", r.status === 409);
+calls.length = 0;
+await worker.fetch(new Request("https://bot.example.workers.dev/hook", { method: "POST", headers: { "X-Telegram-Bot-Api-Secret-Token": env.WEBHOOK_SECRET }, body: JSON.stringify({ callback_query: { id: "q2", data: "u:" + RID, message: { chat: { id: 501 }, message_id: 9 } } }) }), envS);
+ok("родитель может отписаться одной кнопкой", !JSON.parse(kv.get("s:" + RID)).subs.includes(501));
+
+
+console.log("\nДиагностика сводки");
+globalThis.fetch = async (u, o) => { const b = JSON.parse(o.body); calls.push({ method: u.split("/").pop(), body: b }); return { json: async () => (u.endsWith("getWebhookInfo") ? { ok: true, result: { url: "https://x/hook" } } : { ok: true }) }; };
+kv.delete("meta:cron");
+r = await worker.fetch(new Request("https://bot.example.workers.dev/status?key=" + env.WEBHOOK_SECRET), envS); let st = await r.text();
+ok("статус подсказывает, что запуск по часам не включён", st.includes("ещё ни разу") && st.includes("Cron"));
+await worker.scheduled({ scheduledTime: Date.parse("2026-10-14T05:00:00Z") }, envS, { waitUntil: async (p) => p });
+await new Promise((res) => setTimeout(res, 20));
+r = await worker.fetch(new Request("https://bot.example.workers.dev/status?key=" + env.WEBHOOK_SECRET), envS); st = await r.text();
+ok("после запуска статус показывает время последнего срабатывания", st.includes("последний раз 14.10"), st);
+await postD({ initData: init, data: dig, hour: 8, tz: -180 });
+calls.length = 0; r = await worker.fetch(new Request("https://bot.example.workers.dev/test-digest?key=" + env.WEBHOOK_SECRET), envS);
+ok("проверочная сводка уходит сразу", (await r.text()).includes("Отправлено сводок: 1") && calls.some((c) => c.body.chat_id === 777 && c.body.text.startsWith("Проверка сводки")));
+r = await worker.fetch(new Request("https://bot.example.workers.dev/test-digest?key=nope"), envS);
+ok("без ключа проверочную сводку не отправить", r.status === 403);
+
+
+console.log("\nНапоминание о занятии");
+const LID = "LessonLessonLesson_456", LWK = "lesson_write_key_lesson_write_k";
+await post({ id: LID, data: { ...data, name: "Вера", lr: "eve", tz: -180, up: [{ date: "2026-10-15", t: "16:00", tp: "Алгебра" }, { date: "2026-10-17", t: "13:00" }] } }, LWK);
+await hookS({ chat: { id: 601, type: "private" }, from: { first_name: "Мама" }, text: "/start p_" + LID });
+calls.length = 0; let ln = await runLessonReminders(envS, Date.parse("2026-10-14T15:10:00Z"));   // 18:10 МСК
+ok("до 19:00 не напоминает", ln === 0);
+ln = await runLessonReminders(envS, Date.parse("2026-10-14T16:10:00Z"));                           // 19:10 МСК
+const lm = calls.find((c) => c.body.chat_id === 601);
+ok("накануне в 19:00 — «Завтра, четверг, 15.10, в 16:00 · Алгебра»", ln >= 1 && lm && lm.body.text.includes("Завтра, четверг, 15.10, в 16:00 · Алгебра"), lm && lm.body.text);
+ln = await runLessonReminders(envS, Date.parse("2026-10-14T16:40:00Z"));
+ok("одно напоминание на занятие", ln === 0);
+calls.length = 0; ln = await runLessonReminders(envS, Date.parse("2026-10-15T16:10:00Z"));        // накануне 16.10 — занятий нет
+ok("если завтра занятий нет — молчит", ln === 0 && calls.length === 0);
+let lrec = JSON.parse(kv.get("s:" + LID)); lrec.data.lr = "morn"; lrec.lsent = ""; kv.set("s:" + LID, JSON.stringify(lrec));
+calls.length = 0; ln = await runLessonReminders(envS, Date.parse("2026-10-17T06:10:00Z"));        // сб 9:10 МСК
+ok("режим «в день занятия» — утром «Сегодня, суббота, 17.10, в 13:00»", ln >= 1 && calls.some((c) => c.body.text.includes("Сегодня, суббота, 17.10, в 13:00")));
+lrec = JSON.parse(kv.get("s:" + LID)); lrec.data.lr = ""; lrec.lsent = ""; kv.set("s:" + LID, JSON.stringify(lrec));
+ln = await runLessonReminders(envS, Date.parse("2026-10-14T16:10:00Z"));
+ok("выключено — не напоминает", ln === 0);
 
 console.log(fail ? `\nПРОВАЛЕНО: ${fail}` : `\nБот: все проверки пройдены (${pass})`);
 process.exit(fail ? 1 : 0);

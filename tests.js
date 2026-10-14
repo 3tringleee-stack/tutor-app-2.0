@@ -262,6 +262,7 @@ console.log("\n15. Тексты для родителей — без машин�
   eq("отмена без оплаты и оплата видны", rows.some(r=>r.k==="cfree")&&rows.some(r=>r.k==="pay"&&r.sum===2400), true);
   eq("заметки скрыты, пока их не включили", rows.find(r=>r.k==="done").note, "");
   eq("ключ записи в снимок не попадает", JSON.stringify(sn).includes("kkkk"), false);
+  eq("в снимке ближайшие занятия с датами для напоминаний", Array.isArray(sn.up) && sn.up.every(x=>/^\d{4}-\d{2}-\d{2}$/.test(x.date)), true);
   // «платит за месяц»: родителю — реальный долг за проведённые, а не весь план месяца
   T.set([S({id:"q",name:"Саша",price:1500,hours:1,mode:"month",share:{id:"y".repeat(22),wk:"k".repeat(32)},sched:sch([2,6],"13:00",1)})],{"2026-09":[
     {id:"a",sid:"q",type:"payment",date:"2026-09-08",amount:10500},

@@ -2715,12 +2715,14 @@ function shareSnapshot(st){
       return {...base,k:"skip"};
     });
   const mons=[shiftMonth(key,-1),key].map(k=>({label:cap(monthLabel(k)),rows:rowsFor(k)})).filter(m=>m.rows.length);
-  const next=[];
-  for(let i=0;i<21&&next.length<4;i++){ const d=addDays(t,i);
-    slotsOn(d).filter(sl=>sl.st.id===st.id && slotStatus(sl)==="open").forEach(sl=>{ if(next.length<4) next.push({d:fmtDate(d),wd:wdOf(d),t:sl.time||""}); }); }
+  const next=[], up=[];
+  for(let i=0;i<21;i++){ const d=addDays(t,i);
+    slotsOn(d).filter(sl=>sl.st.id===st.id && slotStatus(sl)==="open").forEach(sl=>{
+      if(next.length<4) next.push({d:fmtDate(d),wd:wdOf(d),t:sl.time||""});
+      if(i<=14) up.push({date:d,t:sl.time||"",tp:slotTopic(sl)||""}); }); }
   const per = st.price>0 ? Math.round(rateAt(st,t)*(durFor(st,t)||st.hours||1)) : 0;
   return {v:1,name:st.name,tutor:tutorName(),bal:Math.round(balanceOf(st).balance),per,
-    pay:null,months:mons.reverse(),next,
+    pay:null,months:mons.reverse(),next,how:(st.share&&st.share.how)||"",auto:(st.share&&st.share.auto)||"",lr:(st.share&&st.share.lessons)||"",up,tz:new Date().getTimezoneOffset(),
     upd:`${fmtDate(t)} в ${pad(now.getHours())}:${pad(now.getMinutes())}`};
 }
 /* ---------- утренняя сводка: план на неделю уходит боту, он пишет утром ---------- */
@@ -2773,7 +2775,7 @@ async function pushShares(onlyId){
       const r=await fetch(SHARE_API+"/share",{method:"POST",headers:{"content-type":"application/json","x-write-key":st.share.wk},body:JSON.stringify({id,data:snap})});
       const j=await r.json().catch(()=>({}));
       if(!r.ok || !j.ok) throw new Error(j.error||("HTTP "+r.status));
-      sent[id]=sig; shareState[id]={ok:true,at:new Date()};
+      sent[id]=sig; shareState[id]={ok:true,at:new Date(),subs:+j.subs||0,rem:+j.rem||0};
     }catch(e){ shareState[id]={ok:false,err:String(e&&e.message||e)}; }
     paintShareStatus(st);
   }
@@ -2784,7 +2786,7 @@ function shareStatusText(st){
   const s=shareState[st.share.id];
   if(!s) return "Ссылка работает · обновляется сама после каждого изменения";
   if(s.busy) return "Обновляется…";
-  if(s.ok) return `Ссылка работает · обновлено в ${pad(s.at.getHours())}:${pad(s.at.getMinutes())}`;
+  if(s.ok) return `Ссылка работает · обновлено в ${pad(s.at.getHours())}:${pad(s.at.getMinutes())}${s.subs?" · родитель подписан на бота ✅":" · родитель ещё не открывал ссылку"}`;
   if(s.err==="no_kv") return '<span class="warn">Сервер ссылок ещё не настроен — см. инструкцию к боту.</span>';
   if(s.err==="forbidden") return '<span class="warn">Сервер не принял ключ ссылки. Отключите её и создайте новую.</span>';
   return '<span class="warn">Не удалось обновить — нет связи с сервером. Попробуем снова при следующем изменении.</span>';
@@ -2808,6 +2810,17 @@ function openShare(sid){
     <div class="foot" style="margin-top:8px"><button class="primary" type="button" id="shSend">Отправить в Telegram</button><button class="secondary" type="button" id="shCopy">Скопировать</button></div>
     <div class="hint" id="shHint"></div>
     <label style="margin-top:10px"><input type="checkbox" id="shNotes" ${s.share.notes?"checked":""} style="width:auto;margin-right:6px">Показывать родителю заметки к занятиям (что прошли и что задано)</label>
+    <h3 style="margin-top:18px;font-size:16px">Напоминания о занятиях</h3>
+    <div class="hint" style="margin-top:0">Бот напомнит родителю (или ученику, если ссылку открыл он) о ближайшем занятии — меньше забытых и сорванных уроков.</div>
+    <select id="shLessons"><option value="" ${!s.share.lessons?"selected":""}>Не напоминать</option><option value="eve" ${s.share.lessons==="eve"?"selected":""}>Накануне в 19:00</option><option value="morn" ${s.share.lessons==="morn"?"selected":""}>В день занятия в 9:00</option></select>
+    <h3 style="margin-top:18px;font-size:16px">Напоминания об оплате</h3>
+    <div class="hint" style="margin-top:0">Бот сам напишет родителю, сколько нужно оплатить. Работает, когда родитель хоть раз открыл ссылку в Telegram.</div>
+    <label for="shHow">Как оплатить — бот добавит это в напоминание</label>
+    <input id="shHow" value="${esc(s.share.how||"")}" placeholder="Например: перевод по номеру +7 900 … (Т-Банк)">
+    <label for="shAuto">Напоминать автоматически</label>
+    <select id="shAuto"><option value="" ${!s.share.auto?"selected":""}>Нет, только когда я нажму</option><option value="week" ${s.share.auto==="week"?"selected":""}>По понедельникам в 10:00, если есть долг</option></select>
+    <div class="foot" style="margin-top:8px"><button class="secondary" type="button" id="shRemind">Напомнить сейчас</button></div>
+    <div class="hint" id="shRemHint"></div>
     <div class="mlinks"><button class="small-link" type="button" id="shOff">Отключить ссылку</button></div>
     <div class="hint" id="shOffHint"></div>
     <div class="foot"><button class="secondary" type="button" id="shBack">Назад</button></div>`);
@@ -2816,6 +2829,24 @@ function openShare(sid){
   $("shSend").onclick=()=>{
     const u=`https://t.me/share/url?url=${encodeURIComponent(shareTg(s))}&text=${encodeURIComponent("Занятия и баланс — всегда актуальные, откроется в Telegram")}`;
     try{ if(TG && TG.openTelegramLink) TG.openTelegramLink(u); else window.open(u,"_blank"); }catch(e){ window.open(u,"_blank"); }
+  };
+  const setShare=patch=>{ students=students.map(x=>x.id===sid?{...x,share:{...x.share,...patch}}:x); saveStudents(); pushShares(s.share.id); };
+  $("shHow").onchange=()=>setShare({how:$("shHow").value.trim()});
+  $("shAuto").onchange=()=>setShare({auto:$("shAuto").value});
+  $("shLessons").onchange=()=>setShare({lessons:$("shLessons").value});
+  $("shRemind").onclick=async()=>{
+    const b=$("shRemind"), h=$("shRemHint"), cur=byId(sid);
+    if(balanceOf(cur).balance>=0){ h.innerHTML="Долга нет — напоминать не о чем."; return; }
+    b.disabled=true; b.textContent="Отправляем…";
+    await pushShares(cur.share.id);                       /* сначала свежие цифры */
+    let msg="";
+    try{
+      const r=await fetch(SHARE_API+"/remind",{method:"POST",headers:{"content-type":"application/json","x-write-key":cur.share.wk},body:JSON.stringify({id:cur.share.id})});
+      const j=await r.json().catch(()=>({}));
+      if(r.ok&&j.ok) msg="Напоминание отправлено родителю ✅";
+      else msg='<span class="warn">'+({no_subs:"Родитель ещё не открывал ссылку в Telegram — сначала отправьте ему её.",no_debt:"Долга нет — напоминать не о чем.",too_soon:"Напоминание уже уходило недавно. Повторить можно через 12 часов.",not_delivered:"Telegram не доставил сообщение: возможно, родитель заблокировал бота.",no_kv:"Сервер бота ещё не настроен."}[j.error]||"Не удалось отправить — нет связи с ботом.")+'</span>';
+    }catch(e){ msg='<span class="warn">Не удалось отправить — нет связи с ботом.</span>'; }
+    b.disabled=false; b.textContent="Напомнить сейчас"; h.innerHTML=msg;
   };
   $("shNotes").onchange=()=>{ const v=$("shNotes").checked; students=students.map(x=>x.id===sid?{...x,share:{...x.share,notes:v}}:x); saveStudents(); pushShares(s.share.id); };
   $("shOff").onclick=async()=>{

@@ -73,8 +73,63 @@ async function saveShare(request, env) {
   if (!okId(o.id) || wk.length < 20 || !o.data || typeof o.data !== "object") return jsonRes({ ok: false, error: "bad_request" }, 400);
   const h = await sha(wk), old = await readShare(env, o.id);
   if (old && old.w !== h) return jsonRes({ ok: false, error: "forbidden" }, 403);
-  await env.SHARES.put("s:" + o.id, JSON.stringify({ w: h, data: o.data, at: Date.now() }), { expirationTtl: SHARE_TTL });
-  return jsonRes({ ok: true });
+  await env.SHARES.put("s:" + o.id, JSON.stringify({ ...(old || {}), w: h, data: o.data, at: Date.now() }), { expirationTtl: SHARE_TTL });
+  return jsonRes({ ok: true, subs: old && old.subs ? old.subs.length : 0, rem: old && old.rem || 0 });
+}
+const putShare = (env, id, rec) => env.SHARES.put("s:" + id, JSON.stringify(rec), { expirationTtl: SHARE_TTL });
+
+/* ---------- напоминание родителю об оплате ----------
+   Родитель, открывший ссылку в боте, подписан на напоминания этого ученика (subs).
+   Напоминает репетитор кнопкой в приложении или бот сам — по понедельникам, если есть долг. */
+const REMIND_GAP = 12 * 3600 * 1000;           // ручное напоминание — не чаще раза в 12 часов
+function remindText(d) {
+  const L = [`Добрый день! Напоминание об оплате занятий — ${escH(d.name)}.`, "", `Долг за проведённые занятия: <b>${rubS(-d.bal)}</b>`];
+  if (d.how) L.push(`Как оплатить: ${escH(d.how)}`);
+  if (d.tutor) L.push("", `Преподаватель: ${escH(d.tutor)}`);
+  return L.join("\n");
+}
+const remindKeyboard = (id) => ({ inline_keyboard: [[{ text: "Подробнее: занятия и оплаты", callback_data: "r:" + id }], [{ text: "Не присылать напоминания", callback_data: "u:" + id }]] });
+async function sendReminder(env, id, rec, now = Date.now()) {
+  let sent = 0; const keep = [];
+  for (const chat of rec.subs || []) {
+    const r = await sendShare(env, "sendMessage", { chat_id: chat, parse_mode: "HTML", text: remindText(rec.data), reply_markup: remindKeyboard(id) });
+    if (r && r.ok) { sent++; keep.push(chat); } else if (!(r && r.error_code === 403)) keep.push(chat);   // заблокировал бота — убираем
+  }
+  rec.subs = keep; rec.rem = now;
+  await putShare(env, id, rec);
+  return sent;
+}
+async function remindNow(request, env) {
+  if (!env.SHARES) return jsonRes({ ok: false, error: "no_kv" }, 501);
+  let o; try { o = JSON.parse(await request.text()); } catch (e) { return jsonRes({ ok: false, error: "bad_json" }, 400); }
+  const rec = okId(o.id) ? await readShare(env, o.id) : null;
+  if (!rec) return jsonRes({ ok: false, error: "not_found" }, 404);
+  if (rec.w !== await sha(request.headers.get("x-write-key") || "")) return jsonRes({ ok: false, error: "forbidden" }, 403);
+  if (!(rec.data && rec.data.bal < 0)) return jsonRes({ ok: false, error: "no_debt" }, 409);
+  if (!rec.subs || !rec.subs.length) return jsonRes({ ok: false, error: "no_subs" }, 409);
+  if (rec.rem && Date.now() - rec.rem < REMIND_GAP) return jsonRes({ ok: false, error: "too_soon", rem: rec.rem }, 429);
+  const sent = await sendReminder(env, o.id, rec);
+  return jsonRes({ ok: sent > 0, sent, error: sent ? undefined : "not_delivered", rem: rec.rem }, sent ? 200 : 502);
+}
+/* Автонапоминания: по понедельникам в 10:00 (время репетитора), если долг есть и с прошлого напоминания прошло 5+ дней */
+async function runReminders(env, now = Date.now()) {
+  if (!env.SHARES || !env.SHARES.list) return 0;
+  let cursor, n = 0;
+  do {
+    const page = await env.SHARES.list({ prefix: "s:", cursor });
+    for (const k of page.keys) {
+      const raw = await env.SHARES.get(k.name); if (!raw) continue;
+      let rec; try { rec = JSON.parse(raw); } catch (e) { continue; }
+      const d = rec.data || {};
+      if (d.auto !== "week" || !(d.bal < 0) || !(rec.subs && rec.subs.length)) continue;
+      const ln = localNow(d.tz ?? -180, now);
+      if (ln.getUTCDay() !== 1 || ln.getUTCHours() !== 10) continue;
+      if (rec.rem && now - rec.rem < 5 * 24 * 3600 * 1000) continue;
+      n += await sendReminder(env, k.name.slice(2), rec, now);
+    }
+    cursor = page.list_complete ? null : page.cursor;
+  } while (cursor);
+  return n;
 }
 async function deleteShare(request, env, id) {
   if (!env.SHARES) return jsonRes({ ok: false, error: "no_kv" }, 501);
@@ -166,6 +221,13 @@ async function tg(env, method, body) {
 
 async function onUpdate(update, env, origin) {
   const cq = update.callback_query;
+  if (cq && /^u:/.test(cq.data || "")) {
+    const id = cq.data.slice(2), sh = await readShare(env, id), chat = cq.message && cq.message.chat.id;
+    if (sh && sh.subs) { sh.subs = sh.subs.filter((c) => c !== chat); await putShare(env, id, sh); }
+    await tg(env, "answerCallbackQuery", { callback_query_id: cq.id, text: "Напоминания отключены" });
+    if (cq.message) await tg(env, "sendMessage", { chat_id: chat, text: "Напоминания об оплате больше не придут. Баланс и занятия можно посмотреть по прежней ссылке в любой момент." });
+    return;
+  }
   if (cq && /^r:/.test(cq.data || "")) {
     const id = cq.data.slice(2), sh = await readShare(env, id);
     await tg(env, "answerCallbackQuery", { callback_query_id: cq.id, text: sh ? "Обновлено" : "Ссылка больше не действует" });
@@ -182,6 +244,8 @@ async function onUpdate(update, env, origin) {
   if (pm) {
     const sh = await readShare(env, pm[1]);
     if (!sh) return tg(env, "sendMessage", { chat_id, text: GONE + (env.SHARES ? "" : "\n\n(техническая заметка: у бота не подключено хранилище SHARES)") });
+    const subs = sh.subs || [];
+    if (!subs.includes(chat_id) && subs.length < 5) { sh.subs = subs.concat([chat_id]); await putShare(env, pm[1], sh); }
     return sendShare(env, "sendMessage", { chat_id, parse_mode: "HTML", text: shareText(sh.data, 40), reply_markup: shareKeyboard(pm[1], origin), disable_web_page_preview: true });
   }
   if (/^\/start\b/.test(text)) {
@@ -280,9 +344,83 @@ async function runDigests(env, now = Date.now()) {
   return sentN;
 }
 
-export { tgUserFrom, digestText, runDigests };
+/* ---------- напоминание о занятии ----------
+   Тем же подписчикам (родитель или сам ученик, открывшие ссылку) бот напоминает о занятии:
+   накануне в 19:00 или утром в день занятия в 9:00 — время репетитора. */
+const WD_NOM = ["воскресенье", "понедельник", "вторник", "среда", "четверг", "пятница", "суббота"];
+function lessonText(d, lessons, when) {
+  const dt = new Date(lessons[0].date + "T12:00:00Z"), dm = lessons[0].date.slice(8) + "." + lessons[0].date.slice(5, 7);
+  const day = `${when === "eve" ? "Завтра" : "Сегодня"}, ${WD_NOM[dt.getUTCDay()]}, ${dm}`;
+  const what = lessons.map((x) => (x.t ? "в " + x.t : "") + (x.tp ? " · " + escH(x.tp) : "")).filter(Boolean).join(", ");
+  const L = [`Напоминание о занятии — ${escH(d.name)}.`, "", `<b>${day}${what ? ", " + what : ""}</b>`, "", "Если планы изменились, пожалуйста, предупредите преподавателя заранее."];
+  if (d.tutor) L.push(`Преподаватель: ${escH(d.tutor)}`);
+  return L.join("\n");
+}
+async function runLessonReminders(env, now = Date.now()) {
+  if (!env.SHARES || !env.SHARES.list) return 0;
+  let cursor, n = 0;
+  do {
+    const page = await env.SHARES.list({ prefix: "s:", cursor });
+    for (const k of page.keys) {
+      const raw = await env.SHARES.get(k.name); if (!raw) continue;
+      let rec; try { rec = JSON.parse(raw); } catch (e) { continue; }
+      const d = rec.data || {};
+      if (!(d.lr === "eve" || d.lr === "morn") || !(rec.subs && rec.subs.length) || !Array.isArray(d.up)) continue;
+      const ln = localNow(d.tz ?? -180, now);
+      if (ln.getUTCHours() !== (d.lr === "eve" ? 19 : 9)) continue;
+      const target = isoDay(d.lr === "eve" ? new Date(ln.getTime() + 864e5) : ln);
+      if (rec.lsent === target) continue;
+      const lessons = d.up.filter((x) => x.date === target);
+      if (!lessons.length) continue;
+      const id = k.name.slice(2), keep = [];
+      for (const chat of rec.subs) {
+        const r = await sendShare(env, "sendMessage", { chat_id: chat, parse_mode: "HTML", text: lessonText(d, lessons, d.lr), reply_markup: remindKeyboard(id) });
+        if (r && r.ok) { n++; keep.push(chat); } else if (!(r && r.error_code === 403)) keep.push(chat);
+      }
+      rec.subs = keep; rec.lsent = target;
+      await putShare(env, id, rec);
+    }
+    cursor = page.list_complete ? null : page.cursor;
+  } while (cursor);
+  return n;
+}
+
+/* Подробности для /status: когда последний раз срабатывал запуск по часам и что с каждой сводкой */
+const msk = (t) => new Date(t).toLocaleString("ru-RU", { timeZone: "Europe/Moscow", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+async function digestStatusLines(env) {
+  if (!env.SHARES || !env.SHARES.list) return [];
+  const L = [];
+  let cron = null; try { cron = JSON.parse(await env.SHARES.get("meta:cron") || "null"); } catch (e) {}
+  L.push(cron ? "Запуск по расписанию: последний раз " + msk(cron.at) + " МСК ✅" : "Запуск по расписанию: ещё ни разу ❌ — включите Cron Trigger «0 * * * *» (Settings → Trigger Events)");
+  const keys = (await env.SHARES.list({ prefix: "d:" })).keys;
+  L.push("Утренних сводок включено: " + keys.length + (keys.length ? "" : " ❌ — включите в Табеле: аватар → «Утренняя сводка» (приложение должно быть открыто в Telegram)"));
+  for (const k of keys.slice(0, 5)) {
+    let r = null; try { r = JSON.parse(await env.SHARES.get(k.name)); } catch (e) {}
+    if (r) L.push(`  • в ${r.hour}:00 (сдвиг ${-r.tz / 60} ч от UTC) · план от ${(r.data && r.data.today) || "?"} · последняя отправка: ${r.sent || "ещё не было"}`);
+  }
+  return L;
+}
+/* Отправить сводку прямо сейчас, не дожидаясь утра: /test-digest?key=<WEBHOOK_SECRET> */
+async function testDigests(env) {
+  const keys = (await env.SHARES.list({ prefix: "d:" })).keys; let n = 0;
+  for (const k of keys) {
+    let rec; try { rec = JSON.parse(await env.SHARES.get(k.name)); } catch (e) { continue; }
+    const { text } = digestText(rec, isoDay(localNow(rec.tz)));
+    const r = await tg(env, "sendMessage", { chat_id: rec.chat, text: "Проверка сводки:\n\n" + text, reply_markup: env.APP_URL ? openButton(env.APP_URL) : undefined });
+    if (r && r.ok) n++;
+  }
+  return n;
+}
+export { tgUserFrom, digestText, runDigests, runReminders, remindText, runLessonReminders, lessonText };
 export default {
-  async scheduled(event, env, ctx) { ctx.waitUntil(runDigests(env, event.scheduledTime || Date.now())); },
+  async scheduled(event, env, ctx) {
+    const t = event.scheduledTime || Date.now();
+    ctx.waitUntil((async () => {
+      const [dn, rn] = await Promise.all([runDigests(env, t), runReminders(env, t)]);
+      const ln = await runLessonReminders(env, t);
+      if (env.SHARES) await env.SHARES.put("meta:cron", JSON.stringify({ at: t, digests: dn, reminders: rn, lessons: ln }));   // для страницы /status
+    })());
+  },
   async fetch(request, env) {
     const url = new URL(request.url);
 
@@ -316,18 +454,26 @@ export default {
         "Ждут доставки сообщений: " + (info.pending_update_count || 0),
         info.last_error_message ? "Последняя ошибка (" + when + " МСК): " + info.last_error_message : "Ошибок доставки нет ✅",
         "Хранилище ссылок SHARES: " + (env.SHARES ? "подключено ✅" : "не подключено"),
-        "Утренних сводок включено: " + (env.SHARES && env.SHARES.list ? (await env.SHARES.list({ prefix: "d:" })).keys.length : 0),
+        ...(await digestStatusLines(env)),
       ];
       return new Response(lines.join("\n"), { headers: { "content-type": "text/plain; charset=utf-8" } });
     }
 
     // Утренняя сводка
+    if (request.method === "GET" && url.pathname === "/test-digest") {
+      if (!env.WEBHOOK_SECRET || url.searchParams.get("key") !== env.WEBHOOK_SECRET) return new Response("Нет доступа", { status: 403 });
+      if (!env.SHARES || !env.SHARES.list) return new Response("Не подключено хранилище SHARES", { status: 500, headers: { "content-type": "text/plain; charset=utf-8" } });
+      const n = await testDigests(env);
+      return new Response(n ? `Отправлено сводок: ${n}. Проверьте чат с ботом.` : "Отправлять некому: в Табеле не включена утренняя сводка (аватар → «Утренняя сводка»).", { headers: { "content-type": "text/plain; charset=utf-8" } });
+    }
     if (url.pathname === "/digest" && request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
     if (url.pathname === "/digest" && (request.method === "POST" || request.method === "DELETE")) return saveDigest(request, env);
 
     // Ссылки для родителей
     if (url.pathname === "/share" && request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
     if (url.pathname === "/share" && request.method === "POST") return saveShare(request, env);
+    if (url.pathname === "/remind" && request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
+    if (url.pathname === "/remind" && request.method === "POST") return remindNow(request, env);
     if (url.pathname === "/share" && request.method === "DELETE") return deleteShare(request, env, url.searchParams.get("id"));
     const pp = url.pathname.match(/^\/p\/([A-Za-z0-9_-]{16,40})$/);
     if (pp && request.method === "GET") {
