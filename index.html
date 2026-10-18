@@ -69,7 +69,6 @@ body.hasbg .sheet{backdrop-filter:blur(8px)}
   .day{min-height:78px}
   h1{font-size:30px}
 }
-@media (min-width:1280px){ .cols.three{grid-template-columns:repeat(3,minmax(0,1fr))} }
 
 .setrow{display:flex;justify-content:space-between;align-items:center;gap:var(--s3);flex-wrap:wrap;padding:var(--s3) 0;border-top:1px solid var(--line)}
 .setrow:first-of-type{border-top:0}
@@ -84,14 +83,9 @@ body.hasbg .sheet{backdrop-filter:blur(8px)}
 .themes .sw i{display:block;width:60%;height:100%;border-radius:4px}
 .themes .sw b{display:block;width:22%;height:100%;border-radius:4px}
 .themes .tn{font-size:12.5px;font-weight:600}
-.bgpick{display:grid;grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:8px;margin-top:8px}
-.bgopt{height:56px;border-radius:10px;border:2px solid transparent;background-size:cover;background-position:center;cursor:pointer;padding:0}
-.bgopt[aria-pressed="true"]{border-color:var(--blue)}
-.bgopt.none{background:var(--grid);display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--muted)}
 header{display:flex;justify-content:space-between;align-items:center;gap:var(--s3);margin-bottom:var(--s4);flex-wrap:wrap}
 h1{font-size:26px;line-height:1.15;margin:0;font-weight:800;letter-spacing:-.01em}
 .sub{color:var(--muted);font-size:13px;margin-top:4px}
-.ghost{border:1px solid var(--line);border-radius:12px;padding:8px 14px;background:var(--paper);font-weight:600}
 .sheet{background:var(--paper);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow)}
 .tabs{display:flex;gap:3px;padding:4px;margin-bottom:12px;overflow-x:auto}
 .tabs button{flex:1;border:0;background:transparent;border-radius:11px;padding:10px;font-weight:600;white-space:nowrap;color:var(--muted)}
@@ -223,7 +217,6 @@ details.arch[open] summary::before{transform:rotate(90deg)}
 .dot.cancel{background:var(--c-cancel)}
 .dot.moved{background:var(--c-moved);border-radius:2px;transform:rotate(45deg) scale(.82)}
 .dot.skip{width:12px;height:4px;border-radius:2px;background:var(--c-plan);align-self:center;opacity:.6}
-.dot.pay{background:var(--info);border-radius:2px}
 .day.st-done{background:color-mix(in srgb,var(--c-done) 14%,var(--paper));border-color:color-mix(in srgb,var(--c-done) 45%,var(--line))}
 .day.st-due{background:color-mix(in srgb,var(--c-due) 14%,var(--paper));border-color:color-mix(in srgb,var(--c-due) 55%,var(--line))}
 .day.sel.st-done,.day.sel.st-due{background:var(--blue-soft);border-color:var(--blue)}
@@ -315,7 +308,6 @@ textarea{min-height:60px;resize:vertical}
 .remind{display:flex;align-items:center;gap:8px;flex-wrap:wrap;border-top:1px solid var(--line);margin-top:10px;padding-top:10px;font-size:13.5px;color:var(--muted)}
 .remind input[type=time]{width:auto;padding:5px 8px}
 .remind label{margin:0;display:inline;font-size:13.5px}
-.alarm{background:var(--amber-soft);border-color:transparent}
 .chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
 .chip{border:1px solid var(--line);background:var(--paper);border-radius:99px;padding:5px 10px;font-size:13px}
 .movebar{position:sticky;top:0;z-index:5;background:var(--blue);color:#fff;border-radius:12px;padding:10px 12px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:8px}
@@ -343,7 +335,7 @@ textarea{min-height:60px;resize:vertical}
   .sheet{transition:box-shadow .2s ease}
   .tabs button{transition:background .18s ease,color .18s ease,transform .12s ease}
   .tabs button:active{transform:scale(.96)}
-  .sm,.act,.undo,.chip,.primary,.secondary,.bgopt{transition:transform .1s ease,background .16s ease,border-color .16s ease,color .16s ease}
+  .sm,.act,.undo,.chip,.primary,.secondary{transition:transform .1s ease,background .16s ease,border-color .16s ease,color .16s ease}
   .sm:active,.act:active,.undo:active,.chip:active,.primary:active,.secondary:active{transform:scale(.96)}
   .day{transition:background .18s ease,box-shadow .18s ease,transform .12s ease}
   .day:hover{box-shadow:0 2px 8px rgba(16,24,32,.08)}
@@ -478,7 +470,7 @@ textarea{min-height:60px;resize:vertical}
 (function(){
 let students = [];
 let months = {};
-let db = null, mode = "loading", dataReady = false;   /* dataReady: записи загружены — можно обновлять ссылки родителей */
+let mode = "loading", dataReady = false;   /* dataReady: записи загружены — можно обновлять ссылки родителей */
 const LS_KEY = "tutor-ledger-v1";
 let tab = "today";
 
@@ -721,7 +713,7 @@ async function refreshCloud(){
 
 /* ---------- storage ---------- */
 const BUILD="2026.10.05";
-const AUTHOR_TG="";
+const AUTHOR_TG="Tringleee";
 /* Ссылки для родителей: адрес воркера бота (Cloudflare) и имя бота без @ */
 const SHARE_API="https://tabel-bot.3tringleee.workers.dev";
 const BOT_NAME="tabelapp_bot";   /* ник автора в Telegram без @ — для кнопки «Написать автору» */
@@ -797,13 +789,11 @@ function saveLocal(){ if(DEMO) return; vaultPut(students); try{ localStorage.set
 function saveStudents(){
   if(DEMO) return;
   if(mode==="cloud"){ saveLocal(); return enqueue(()=>pushStudents().then(()=>stamp("Сохранено в Telegram"))); }
-  if(mode==="db") return enqueue(()=>db.doc("config/students").set({list:students}));
   saveLocal();
 }
 function saveMonth(key){
   if(DEMO) return;
   if(mode==="cloud"){ saveLocal(); return enqueue(()=>pushMonth(key).then(()=>stamp("Сохранено в Telegram"))); }
-  if(mode==="db") return enqueue(()=>db.doc("months/"+key).set({events:months[key]||[]}));
   saveLocal();
 }
 function loadLocal(){
@@ -912,22 +902,7 @@ async function init(){
     $("syncState").textContent="Обновите Telegram: в этой версии нет синхронизации. Пока записи хранятся только на этом устройстве.";
     render(); return;
   }
-  let d=null;
-  try{ d = window.claude && window.claude.use ? await window.claude.use("db") : null; }catch(e){ d=null; }
-  if(!d){ mode="local"; loadLocal(); normStudents(); dataReady=true; $("syncState").textContent="Записи хранятся в этом браузере"; render(); return; }
-  db=d; mode="db";
-  $("syncState").textContent="Синхронизация…";
-  const lost=()=>{ $("syncState").textContent="Связь с хранилищем потеряна — обновите страницу"; };
-  db.doc("config/students").onSnapshot(snap=>{
-    if(snap.exists){ const l=snap.data().list; if(Array.isArray(l)) { students=l.map(s=>({...s})); normStudents(); } }
-    $("syncState").textContent="Сохраняется автоматически";
-    dataReady=true; render();
-  }, lost);
-  db.collection("months").onSnapshot(snap=>{
-    const next={};
-    snap.docs.forEach(doc=>{ const ev=(doc.data()||{}).events; next[doc.id]=Array.isArray(ev)?ev.map(x=>({...x})):[]; });
-    months=next; render();
-  }, lost);
+  mode="local"; loadLocal(); normStudents(); dataReady=true; $("syncState").textContent="Записи хранятся в этом браузере"; render();
 }
 
 /* ---------- mutations ---------- */
@@ -1810,7 +1785,7 @@ Object.entries(ACCENTS).map(([k,v])=>`<option value="${k}" ${ui.accent===k?"sele
         <div class="btns" style="margin-top:8px"><button class="sm done" type="button" id="setBackup">Резервная копия</button>
           <button class="sm" type="button" id="impSched">Загрузить расписание текстом</button></div>
         <div class="hint">Загрузка текстом удобна, если список учеников уже есть в заметках или таблице.</div>
-        <div class="setrow" style="margin-top:10px"><div class="lbl"><b>Хранилище</b><span>${mode==="cloud"?"облако Telegram":mode==="db"?"аккаунт Claude":mode==="demo"?"пробный режим, ничего не сохраняется":"это устройство"} · ${esc(diag)}</span></div></div>
+        <div class="setrow" style="margin-top:10px"><div class="lbl"><b>Хранилище</b><span>${mode==="cloud"?"облако Telegram":mode==="demo"?"пробный режим, ничего не сохраняется":"это устройство"} · ${esc(diag)}</span></div></div>
       </div>
 
       <div class="sheet box" style="margin-top:14px">
@@ -2722,7 +2697,7 @@ function shareSnapshot(st){
       if(i<=14) up.push({date:d,t:sl.time||"",tp:slotTopic(sl)||""}); }); }
   const per = st.price>0 ? Math.round(rateAt(st,t)*(durFor(st,t)||st.hours||1)) : 0;
   return {v:1,name:st.name,tutor:tutorName(),bal:Math.round(balanceOf(st).balance),per,
-    pay:null,months:mons.reverse(),next,how:(st.share&&st.share.how)||"",auto:(st.share&&st.share.auto)||"",lr:(st.share&&st.share.lessons)||"",up,tz:new Date().getTimezoneOffset(),
+    months:mons.reverse(),next,how:(st.share&&st.share.how)||"",auto:(st.share&&st.share.auto)||"",lr:(st.share&&st.share.lessons)||"",up,tz:new Date().getTimezoneOffset(),
     upd:`${fmtDate(t)} в ${pad(now.getHours())}:${pad(now.getMinutes())}`};
 }
 /* ---------- утренняя сводка: план на неделю уходит боту, он пишет утром ---------- */
@@ -2866,8 +2841,6 @@ function openShare(sid){
 function openStudentForm(sid){
   const st = sid ? byId(sid) : {id:null,name:"",last:"",group:"",payMethod:"",contractNo:"",contractDate:"",perWeek:1,price:0,hours:1,note:"",mode:"",sched:[],prices:[],pair:"",grade:"",subject:"",goal:"",parent:"",contact:"",about:"",archived:false};
   detailSid=null;
-  const curP=periodFor(st,today());
-  const curDays=curP?curP.days:[];
   const ed_d=schedEditDate(st);
   const origRows=schedRowsOf(st,ed_d);
   const sEd=schedEditor("sEd", origRows, st.hours||1);
@@ -3043,7 +3016,7 @@ function openBackup(){
     <input type="file" id="bkFile" accept=".json,application/json,text/plain" style="margin-top:8px">
     <textarea id="bkIn" style="min-height:70px;margin-top:8px" placeholder="или вставьте текст копии сюда"></textarea>
     <div class="hint" id="bkPrev"></div>
-    <div class="hint" style="margin-top:10px">Хранилище: ${mode==="cloud"?"облако Telegram":mode==="db"?"аккаунт Claude":mode==="demo"?"пробный режим, ничего не сохраняется":"это устройство"} · ${esc(diag)}</div>
+    <div class="hint" style="margin-top:10px">Хранилище: ${mode==="cloud"?"облако Telegram":mode==="demo"?"пробный режим, ничего не сохраняется":"это устройство"} · ${esc(diag)}</div>
     <div class="foot"><button class="secondary" type="button" id="bkClose">Закрыть</button><button class="secondary" type="button" id="bkRestore" disabled>Восстановить</button></div>`);
   $("bkClose").onclick=closeModal;
   if(mode==="cloud") fillAutoCopies();
@@ -3086,7 +3059,7 @@ function replaceAll(st, mo){
   const oldKeys=Object.keys(months);
   students=st.map(x=>({...x})); normStudents();
   months={}; for(const k in mo) months[k]=(mo[k]||[]).map(x=>({...x}));
-  if(mode==="db"||mode==="cloud"){ saveStudents(); new Set(oldKeys.concat(Object.keys(months))).forEach(k=>{ if(!months[k]) months[k]=[]; saveMonth(k); }); }
+  if(mode==="cloud"){ saveStudents(); new Set(oldKeys.concat(Object.keys(months))).forEach(k=>{ if(!months[k]) months[k]=[]; saveMonth(k); }); }
   else saveLocal();
 }
 function undoRestore(){
