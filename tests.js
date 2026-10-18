@@ -286,5 +286,20 @@ console.log("\n15. Тексты для родителей — без машин�
   eq("главная — алгебра, геометрия свёрнута ниже", h.indexOf("Логарифмы")<h.indexOf("Сечения") && h.includes('class="nt other"'), true);
 }
 
+{
+  console.log("\n20. Предметы репетитора и подсказки тем");
+  T.setUI({subjects:[]});
+  eq("без выбора — математика и её темы", T.topicPresets(null).slice(0,3).join(","), "Математика,ОГЭ,ЕГЭ");
+  T.setUI({subjects:["Химия"]});
+  const ch=T.topicPresets(null);
+  eq("химику — химические темы", ch.includes("Органика") && ch.includes("Неорганика"), true);
+  eq("и никакой геометрии", ch.includes("Геометрия"), false);
+  T.setUI({subjects:["Математика","Физика"]});
+  const mf=T.topicPresets(null);
+  eq("два предмета — сами предметы тоже темы", mf.includes("Математика") && mf.includes("Физика") && mf.includes("Механика"), true);
+  eq("у ученика по физике — сначала физика", T.topicPresets({subject:"физика"})[2], "Механика");
+  T.setUI({subjects:[]});
+}
+
 console.log("\n" + (fail? `ПРОВАЛЕНО: ${fail}, пройдено: ${pass}` : `Все проверки пройдены: ${pass}`));
 process.exit(fail?1:0);

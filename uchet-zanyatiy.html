@@ -152,6 +152,9 @@ details.arch[open] summary::before{transform:rotate(90deg)}
 .nt.other summary .sn{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;font-size:13px}
 .nt.other[open] summary .sn{display:none}
 .nt.other .full{margin-top:3px;color:var(--ink);opacity:.85}
+.subjpick{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+.subjpick .tchip.on{background:hsl(var(--h) 70% 50% / .28);border-color:hsl(var(--h) 60% 55%)}
+.subjpick .tchip.on::before{content:"✓ "}
 .tpick{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12.5px;color:var(--muted)}
 .tchip{border:1px solid hsl(var(--h) 60% 50% / .35);background:transparent;color:hsl(var(--h) 60% var(--topic-l,36%));border-radius:999px;padding:3px 10px;font-size:12.5px;font-weight:700;cursor:pointer}
 .tchip.on{background:hsl(var(--h) 70% 50% / .18);border-color:transparent}
@@ -1736,10 +1739,16 @@ function openProfile(){
       <div><b>${act}</b><span>${plural(act,"ученик","ученика","учеников")}</span></div>
       <div><b>${fmtH(hrs)}</b><span>в этом месяце по плану</span></div>
     </div>
+    <label>Мои предметы</label>
+    <div class="subjpick" id="uiSubj">${Object.keys(SUBJECTS).map(k=>`<button type="button" class="tchip${mySubjects().includes(k)?" on":""}" style="--h:${topicHue(k)}" data-subj="${esc(k)}" aria-pressed="${mySubjects().includes(k)}">${esc(k)}</button>`).join("")}</div>
+    <div class="hint" style="margin-top:4px">От этого зависят подсказки тем занятий: химику — «Органика» и «Неорганика», математику — «Алгебра» и «Геометрия».</div>
     <label for="uiOwner">Подпись в сообщениях родителям</label><input id="uiOwner" value="${esc(ui.owner||"")}" placeholder="Например: Анна Сергеевна">
     <div id="setBody" style="margin-top:12px">${viewSettings()}</div>
     <div class="foot"><button class="primary" type="button" id="prClose">Закрыть</button></div>`);
   $("uiOwner").onchange=()=>{ ui.owner=$("uiOwner").value; saveUI(); };
+  $("uiSubj").onclick=e=>{ const b=e.target.closest("[data-subj]"); if(!b) return;
+    const k=b.dataset.subj, cur=mySubjects(); ui.subjects=cur.includes(k)?cur.filter(x=>x!==k):cur.concat([k]); saveUI();
+    const on=ui.subjects.includes(k); b.classList.toggle("on",on); b.setAttribute("aria-pressed",on); render(); };
   $("prClose").onclick=closeModal;
   bindSettings();
 }
@@ -2105,6 +2114,7 @@ function schedRowsOf(st,d){
   return WD_ORDER.filter(w=>p.days.includes(w)).map(w=>({w,time:(p.times||{})[w]||"",dur:(p.durs||{})[w]||st.hours||1,subj:((st.subj||{})[w])||""}));
 }
 /* Редактор: кнопки дней сверху, под ними по строке на каждый выбранный день */
+let schedStudent=null;   /* для подсказок тем в редакторе расписания */
 function schedEditor(id, rows, defDur){
   const st={rows:rows.map(r=>({...r}))};
   const rowHTML=r=>`<div class="srow" data-w="${r.w}"><span class="sd">${WD_CAP[r.w]}</span>
@@ -2112,7 +2122,7 @@ function schedEditor(id, rows, defDur){
       <select data-k="dur" aria-label="Длительность, ${WD_LONG[r.w]}">${durOptions(r.dur)}</select>
       <button class="undo" type="button" data-sdel="${r.w}" title="Убрать этот день" aria-label="Убрать ${WD_LONG[r.w]}">${ICO.cross}</button>
       <input class="ssubj" type="text" list="${id}Topics" value="${esc(r.subj||"")}" data-k="subj" placeholder="Тема дня — например, Алгебра (необязательно)" aria-label="Тема, ${WD_LONG[r.w]}"></div>`;
-  const html=()=>`<div class="sched" id="${id}"><datalist id="${id}Topics">${["ОГЭ","ЕГЭ","Алгебра","Геометрия","Теория","Практика","Пробник"].map(t=>`<option value="${t}">`).join("")}</datalist>
+  const html=()=>`<div class="sched" id="${id}"><datalist id="${id}Topics">${topicPresets(schedStudent).map(t=>`<option value="${t}">`).join("")}</datalist>
       <div class="wdpick">${WD_ORDER.map(w=>`<button type="button" data-sw="${w}" aria-pressed="${st.rows.some(r=>r.w===w)}">${WD[w]}</button>`).join("")}</div>
       <div class="srows">${st.rows.length?WD_ORDER.map(w=>st.rows.find(r=>r.w===w)).filter(Boolean).map(rowHTML).join(""):'<div class="hint" style="margin:6px 0 0">Нажмите на день недели — появится строка для времени и длительности.</div>'}</div></div>`;
   const read=()=>{ const el=$(id); if(!el) return; el.querySelectorAll(".srow").forEach(rw=>{ const r=st.rows.find(x=>x.w===+rw.dataset.w); if(!r) return;
@@ -2155,7 +2165,7 @@ function openSchedule(sid, note){
   const st=byId(sid); if(!st) return;
   detailSid=null;
   const ed_d=schedEditDate(st);
-  const ed=schedEditor("schEd", schedRowsOf(st,ed_d), st.hours||1);
+  schedStudent=st; const ed=schedEditor("schEd", schedRowsOf(st,ed_d), st.hours||1);
   const defFrom = ed_d>today() ? ed_d : today();
   openModal(`<h3>Расписание: ${esc(st.name)}</h3>
     <div class="hint" style="margin-top:-6px">${note?esc(note):"Еженедельные занятия: выберите дни, а для каждого дня — время и длительность. Тема дня (например, «Алгебра») — чтобы на занятии видеть заметку с прошлого урока той же темы."}</div>
@@ -2304,6 +2314,35 @@ function openTweak(g){
 /* ---------- темы занятий ----------
    У ученика можно задать тему для дня недели: вторник — «Алгебра», четверг — «Геометрия».
    Тогда на каждом занятии видна заметка с прошлого занятия той же темы. */
+/* Предметы репетитора: от них зависят подсказки тем. Химику — «Органика», «Неорганика», а не «Геометрия». */
+const SUBJECTS={
+  "Математика":["ОГЭ","ЕГЭ","Алгебра","Геометрия","Пробник"],
+  "Физика":["ОГЭ","ЕГЭ","Механика","Электричество","Оптика","Пробник"],
+  "Химия":["ОГЭ","ЕГЭ","Неорганика","Органика","Задачи","Пробник"],
+  "Биология":["ОГЭ","ЕГЭ","Ботаника","Зоология","Анатомия","Генетика"],
+  "Русский язык":["ОГЭ","ЕГЭ","Орфография","Пунктуация","Сочинение"],
+  "Литература":["ОГЭ","ЕГЭ","Анализ текста","Сочинение"],
+  "Английский":["ОГЭ","ЕГЭ","Grammar","Vocabulary","Speaking","Writing"],
+  "История":["ОГЭ","ЕГЭ","Даты и события","Работа с источниками"],
+  "Обществознание":["ОГЭ","ЕГЭ","Право","Экономика","Эссе"],
+  "Информатика":["ОГЭ","ЕГЭ","Программирование","Алгоритмы"],
+  "География":["ОГЭ","ЕГЭ","Карты","Экономическая география"],
+  "Начальная школа":["Чтение","Письмо","Математика","Окружающий мир"],
+};
+const COMMON_TOPICS=["Теория","Практика","Разбор д/з"];
+const mySubjects=()=>Array.isArray(ui.subjects)?ui.subjects.filter(x=>SUBJECTS[x]||x):[];
+/* Подсказки тем: сначала по предмету ученика, затем по предметам репетитора; если предметов несколько — сами предметы тоже темы */
+function topicPresets(st){
+  const out=[], add=x=>{ if(x && !out.includes(x)) out.push(x); };
+  const mine=mySubjects();
+  const stSubj=st&&st.subject ? Object.keys(SUBJECTS).find(k=>k.toLowerCase()===String(st.subject).trim().toLowerCase()) : "";
+  if(stSubj) SUBJECTS[stSubj].forEach(add);
+  if(mine.length>1) mine.forEach(add);
+  mine.forEach(m=>(SUBJECTS[m]||[]).forEach(add));
+  if(!mine.length && !stSubj) ["Математика",...SUBJECTS["Математика"]].forEach(add);
+  COMMON_TOPICS.forEach(add);
+  return out;
+}
 const subjAt=(st,d)=>((st&&st.subj)||{})[parse(d).getDay()]||"";
 function topicOf(e, st){ if(!e) return ""; if(typeof e.topic==="string") return e.topic; return subjAt(st||byId(e.sid), e.date); }
 /* Тема занятия без явного выбора: из расписания, а если там нет — как на прошлом занятии в тот же день недели
@@ -2352,7 +2391,7 @@ function topicChip(t){ return t?`<span class="topic" style="--h:${topicHue(t)}">
 function knownTopics(st){
   const set=new Set(Object.values((st&&st.subj)||{}).filter(Boolean));
   allEvents().forEach(e=>{ if(st&&e.sid===st.id&&e.topic) set.add(e.topic); });
-  ["ОГЭ","ЕГЭ","Алгебра","Геометрия","Теория","Практика","Пробник","Разбор д/з"].forEach(x=>set.add(x));
+  topicPresets(st).forEach(x=>set.add(x));
   return [...set];
 }
 /* Заметка с прошлого проведённого занятия — той же темы, если темы заданы */
@@ -2843,7 +2882,7 @@ function openStudentForm(sid){
   detailSid=null;
   const ed_d=schedEditDate(st);
   const origRows=schedRowsOf(st,ed_d);
-  const sEd=schedEditor("sEd", origRows, st.hours||1);
+  schedStudent=st; const sEd=schedEditor("sEd", origRows, st.hours||1);
   const defFrom = ed_d>today() ? ed_d : today();
   openModal(`<h3>${sid?"Настройки: "+esc(st.name):"Новый ученик"}</h3>
     <div class="row2">
@@ -2871,7 +2910,7 @@ function openStudentForm(sid){
     </div>
     <div class="row3">
       <div><label for="sGrade">Класс</label><input id="sGrade" value="${esc(st.grade||"")}" placeholder="9"></div>
-      <div><label for="sSubject">Предмет</label><input id="sSubject" value="${esc(st.subject||"")}" placeholder="математика"></div>
+      <div><label for="sSubject">Предмет</label><input id="sSubject" list="sSubjList" value="${esc(st.subject||"")}" placeholder="${esc(mySubjects()[0]||"Математика")}"><datalist id="sSubjList">${(mySubjects().length?mySubjects():Object.keys(SUBJECTS)).map(x=>`<option value="${esc(x)}">`).join("")}</datalist></div>
       <div><label for="sGoal">Цель</label><input id="sGoal" value="${esc(st.goal||"")}" placeholder="например: ЕГЭ"></div>
     </div>
     <div class="row2">
@@ -3266,7 +3305,7 @@ function openImport(){
 if(typeof module!=="undefined" && module.exports){
   module.exports={_t:{
     set:(st,mo)=>{ students=st; normStudents(); months=mo||{}; },
-    students:()=>students, months:()=>months, digestData, snapPlan, prevNote, topicOf, shareSnapshot, inferTopic, lastNotesByTopic, notesBlockHtml, fillAutoCopies, openBackup,
+    students:()=>students, months:()=>months, digestData, topicPresets, setUI:o=>Object.assign(ui,o), snapPlan, prevNote, topicOf, shareSnapshot, inferTopic, lastNotesByTopic, notesBlockHtml, fillAutoCopies, openBackup,
     slotsOn, slotStatus, groupSlots, markDone, markDay, undoSlot, findEv,
     costOf, balanceOf, monthStats, planOf, rateAt, payCheck, registryRows, journalRows,
     monthPulse, freeSlots, reportDue, reportPeriodFor, parentText, tplText, fullName,
