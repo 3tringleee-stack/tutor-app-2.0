@@ -1232,7 +1232,10 @@ function viewWelcome(){
 function openWizard(){
   detailSid=null;
   let stepN=1;
-  const data={name:"",last:"",days:[],time:"18:00",hours:1,price:0,mode:"",parent:"",contact:"",oneoff:false};
+  const data={name:"",last:"",rows:[],price:0,mode:"",parent:"",contact:"",oneoff:false};
+  const daysOf=()=>data.rows.map(r=>r.w);
+  const weekH=()=>data.rows.reduce((a,r)=>a+(+r.dur||1),0);
+  let wEd=null;
   const render3=()=>{
     const prog=`<div class="wiz-prog">${[1,2,3].map(i=>`<i class="${i<=stepN?"on":""}"></i>`).join("")}</div>`;
     if(stepN===1){
@@ -1242,29 +1245,28 @@ function openWizard(){
           <div><label for="wLast">Фамилия или пометка</label><input id="wLast" value="${esc(data.last)}" placeholder="чтобы не путать тёзок"></div>
         </div>
         <label><input type="checkbox" id="wOne" ${data.oneoff?"checked":""} style="width:auto;margin-right:6px">Без постоянного расписания — договариваемся каждый раз</label>
-        <label>В какие дни занимаетесь</label>
-        <div class="wdpick" id="wWd">${WD_ORDER.map(w=>`<button type="button" data-w="${w}" aria-pressed="${data.days.includes(w)}">${WD[w]}</button>`).join("")}</div>
-        <div class="row2">
-          <div><label for="wTime">Во сколько</label><input type="time" id="wTime" step="300" value="${data.time}"></div>
-          <div><label for="wH">Длительность</label>${hoursInput("wH",data.hours)}</div>
+        <div id="wSchedBox" ${data.oneoff?"hidden":""}>
+          <label>В какие дни занимаетесь</label>
+          <div class="hint" style="margin-top:0">Выберите дни — у каждого своё время и длительность.</div>
+          ${(wEd=schedEditor("wSched", data.rows, 1, {noSubj:true})).html()}
         </div>
         <div class="hint" id="wErr"></div>
         <div class="foot"><button class="secondary" type="button" id="wCancel">Отмена</button><button class="primary" type="button" id="wNext">Далее</button></div>`);
-      $("wWd").onclick=e=>{ const b=e.target.closest("button"); if(!b) return; const w=+b.dataset.w;
-        data.days = data.days.includes(w) ? data.days.filter(x=>x!==w) : data.days.concat([w]);
-        b.setAttribute("aria-pressed",data.days.includes(w)); };
+      wEd.bind();
+      $("wOne").onchange=()=>{ $("wSchedBox").hidden=$("wOne").checked; };
       $("wCancel").onclick=closeModal;
       $("wNext").onclick=()=>{
         data.name=$("wName").value.trim(); data.last=$("wLast").value.trim();
-        data.time=$("wTime").value; data.hours=num($("wH").value)||1; data.oneoff=$("wOne").checked;
+        data.rows=wEd.rows(); data.oneoff=$("wOne").checked;
         if(!data.name){ $("wErr").textContent="Введите имя."; return; }
-        if(!data.oneoff && !data.days.length){ $("wErr").textContent="Выберите дни занятий или отметьте «Без постоянного расписания»."; return; }
-        if(data.oneoff) data.days=[];
+        if(!data.oneoff && !data.rows.length){ $("wErr").textContent="Выберите дни занятий или отметьте «Без постоянного расписания»."; return; }
+        if(!data.oneoff && data.rows.some(r=>!r.time)){ $("wErr").textContent="Укажите время для каждого дня."; return; }
+        if(data.oneoff) data.rows=[];
         stepN=2; render3();
       };
     } else if(stepN===2){
       openModal(`${prog}<h3>Шаг 2. Оплата</h3>
-        <div class="hint" style="margin-top:-6px">${esc(data.name)}: ${data.oneoff?"по договорённости":WD_ORDER.filter(w=>data.days.includes(w)).map(w=>WD[w]).join(", ")+", "+data.time}, ${fmtH(data.hours)}</div>
+        <div class="hint" style="margin-top:-6px">${esc(data.name)}: ${data.oneoff?"по договорённости":data.rows.map(r=>`${WD[r.w]} ${r.time} (${fmtH(r.dur)})`).join(", ")}</div>
         <label for="wPrice">Цена за час, ₽</label><input id="wPrice" type="number" min="0" inputmode="numeric" value="${data.price||""}" placeholder="1500">
         <div class="hint" id="wCost"></div>
         <label>Как платит</label>
@@ -1275,7 +1277,8 @@ function openWizard(){
         </div>
         <div class="hint" id="wErr2"></div>
         <div class="foot"><button class="secondary" type="button" id="wBack">Назад</button><button class="primary" type="button" id="wNext2">Далее</button></div>`);
-      const cost=()=>{ const p=num($("wPrice").value); $("wCost").textContent = p>0 ? `Одно занятие — ${rub(p*data.hours)}, в неделю ${rub(p*data.hours*data.days.length)}.` : ""; };
+      const cost=()=>{ const p=num($("wPrice").value); const durs=[...new Set(data.rows.map(r=>+r.dur||1))];
+        $("wCost").textContent = p>0 ? (durs.length===1?`Одно занятие — ${rub(p*durs[0])}`:`Занятия — ${durs.map(h=>rub(p*h)).join(" и ")}`)+(data.rows.length?`, в неделю ${rub(p*weekH())}.`:".") : ""; };
       $("wPrice").oninput=cost; cost();
       $("wMode").onclick=e=>{ const b=e.target.closest("button"); if(!b) return; data.mode=b.dataset.m;
         $("wMode").querySelectorAll("button").forEach(x=>x.setAttribute("aria-pressed",x===b)); };
@@ -1300,11 +1303,12 @@ function openWizard(){
         data.parent=$("wParent").value.trim(); data.contact=$("wContact").value.trim();
         const from=today();
         const times={}, durs={};
-        data.days.forEach(w=>{ if(data.time) times[w]=data.time; durs[w]=data.hours; });
-        students=students.concat([{id:"s"+uid(),name:data.name,last:data.last,group:"",oneoff:data.oneoff,perWeek:data.days.length,
-          price:data.price,prices:[],hours:data.hours,mode:data.mode,payMethod:"",note:"",
+        data.rows.forEach(r=>{ if(r.time) times[r.w]=r.time; durs[r.w]=+r.dur||1; });
+        const days=daysOf();
+        students=students.concat([{id:"s"+uid(),name:data.name,last:data.last,group:"",oneoff:data.oneoff,perWeek:days.length,
+          price:data.price,prices:[],hours:data.rows.length?(+data.rows[0].dur||1):1,mode:data.mode,payMethod:"",note:"",
           grade:"",subject:"",goal:"",parent:data.parent,contact:data.contact,about:"",contractNo:"",contractDate:"",pair:"",
-          sched:data.days.length?[{from,days:data.days.slice().sort(),times,durs}]:[],archived:false}]);
+          sched:days.length?[{from,days:days.slice().sort(),times,durs}]:[],archived:false}]);
         saveStudents(); tab="today"; closeModal(); render();
       };
     }
@@ -2115,18 +2119,19 @@ function schedRowsOf(st,d){
 }
 /* Редактор: кнопки дней сверху, под ними по строке на каждый выбранный день */
 let schedStudent=null;   /* для подсказок тем в редакторе расписания */
-function schedEditor(id, rows, defDur){
+function schedEditor(id, rows, defDur, opts){
+  const noSubj=!!(opts&&opts.noSubj);
   const st={rows:rows.map(r=>({...r}))};
   const rowHTML=r=>`<div class="srow" data-w="${r.w}"><span class="sd">${WD_CAP[r.w]}</span>
       <input type="time" step="300" value="${r.time}" data-k="time" aria-label="Время, ${WD_LONG[r.w]}">
       <select data-k="dur" aria-label="Длительность, ${WD_LONG[r.w]}">${durOptions(r.dur)}</select>
       <button class="undo" type="button" data-sdel="${r.w}" title="Убрать этот день" aria-label="Убрать ${WD_LONG[r.w]}">${ICO.cross}</button>
-      <input class="ssubj" type="text" list="${id}Topics" value="${esc(r.subj||"")}" data-k="subj" placeholder="Тема дня — например, Алгебра (необязательно)" aria-label="Тема, ${WD_LONG[r.w]}"></div>`;
+      ${noSubj?"":`<input class="ssubj" type="text" list="${id}Topics" value="${esc(r.subj||"")}" data-k="subj" placeholder="Тема дня — например, Алгебра (необязательно)" aria-label="Тема, ${WD_LONG[r.w]}">`}</div>`;
   const html=()=>`<div class="sched" id="${id}"><datalist id="${id}Topics">${topicPresets(schedStudent).map(t=>`<option value="${t}">`).join("")}</datalist>
       <div class="wdpick">${WD_ORDER.map(w=>`<button type="button" data-sw="${w}" aria-pressed="${st.rows.some(r=>r.w===w)}">${WD[w]}</button>`).join("")}</div>
       <div class="srows">${st.rows.length?WD_ORDER.map(w=>st.rows.find(r=>r.w===w)).filter(Boolean).map(rowHTML).join(""):'<div class="hint" style="margin:6px 0 0">Нажмите на день недели — появится строка для времени и длительности.</div>'}</div></div>`;
   const read=()=>{ const el=$(id); if(!el) return; el.querySelectorAll(".srow").forEach(rw=>{ const r=st.rows.find(x=>x.w===+rw.dataset.w); if(!r) return;
-      r.time=rw.querySelector('[data-k="time"]').value; r.dur=num(rw.querySelector('[data-k="dur"]').value)||r.dur; r.subj=(rw.querySelector('[data-k="subj"]').value||"").trim(); }); };
+      r.time=rw.querySelector('[data-k="time"]').value; r.dur=num(rw.querySelector('[data-k="dur"]').value)||r.dur; const sj=rw.querySelector('[data-k="subj"]'); r.subj=sj?(sj.value||"").trim():(r.subj||""); }); };
   const redraw=()=>{ const el=$(id); if(el){ el.outerHTML=html(); bind(); } };
   const bind=()=>{ const el=$(id); if(!el) return;
     el.onclick=e=>{ const b=e.target.closest("button"); if(!b) return; read();

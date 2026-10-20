@@ -62,13 +62,17 @@ const otherDays = (() => { const out = []; for (let i = 1; out.length < 4 && i <
   const header = async id => { await page.waitForTimeout(900); return text(id); };
   const setDur = (id, h) => page.evaluate(([id, h]) => { const el = document.getElementById(id); el.value = String(h); el.dispatchEvent(new Event("input", { bubbles: true })); el.dispatchEvent(new Event("change", { bubbles: true })); }, [id, h]);
 
-  async function wizard({ name, last = "", days = [], oneoff = false, time = "17:00", hours = 1, price = 0, mode = "after", parent = "" }) {
+  async function wizard({ name, last = "", days = [], oneoff = false, time = "17:00", hours = 1, times = null, durs = null, price = 0, mode = "after", parent = "" }) {
     if (!(await $("#wizStart").count())) await tab("st");
     await $("#wizStart, #addSt").first().click();
     await $("#wName").fill(name); await $("#wLast").fill(last);
     if (oneoff) await $("#wOne").check();
-    for (const w of days) await $(`#wWd [data-w="${w}"]`).click();
-    await $("#wTime").fill(time); await setDur("wH", hours);
+    for (const w of days) {
+      await $(`#wSched [data-sw="${w}"]`).click();
+      const t = (times && times[w]) || time, h = (durs && durs[w]) || hours;
+      await $(`#wSched .srow[data-w="${w}"] [data-k="time"]`).fill(t);
+      await page.evaluate(([w, h]) => { const el = document.querySelector(`#wSched .srow[data-w="${w}"] [data-k="dur"]`); el.value = String(h); el.dispatchEvent(new Event("change", { bubbles: true })); }, [w, h]);
+    }
     await $("#wNext").click();
     await $("#wPrice").fill(String(price));
     if (!oneoff) await $(`#wMode [data-m="${mode}"]`).click();
@@ -392,13 +396,31 @@ const otherDays = (() => { const out = []; for (let i = 1; out.length < 4 && i <
     const p2 = await ctx2.newPage();
     await p2.clock.install({ time: new Date(2026, 9, 5, 23, 59, 0) });
     await p2.goto(APP + "?new"); await p2.waitForTimeout(200);
-    await p2.click("#wizStart"); await p2.fill("#wName", "Ночная"); await p2.click('#wWd [data-w="1"]'); await p2.click('#wWd [data-w="2"]');
+    await p2.click("#wizStart"); await p2.fill("#wName", "Ночная"); await p2.click('#wSched [data-sw="1"]'); await p2.click('#wSched [data-sw="2"]');
     await p2.click("#wNext"); await p2.fill("#wPrice", "1000"); await p2.click('#wMode [data-m="after"]'); await p2.click("#wNext2"); await p2.click("#wSave");
     const d1 = await p2.locator("#view h2").filter({ hasText: "Сегодня" }).first().innerText();
     await p2.clock.runFor(3 * 60 * 1000); await p2.waitForTimeout(100);
     const d2 = await p2.locator("#view h2").filter({ hasText: "Сегодня" }).first().innerText();
     ok("после полуночи «Сегодня» само переключилось на новый день", /понедельник/.test(d1) && /вторник/.test(d2), d1 + " → " + d2);
     await ctx2.close();
+
+    // мастер: у каждого дня своё время и длительность
+    const ctx3 = await browser.newContext({ viewport: { width: W, height: H }, locale: "ru-RU" });
+    await ctx3.route("**/telegram-web-app.js", r => r.fulfill({ contentType: "application/javascript", body: "" }));
+    const p3 = await ctx3.newPage(); await p3.goto(APP); await p3.waitForTimeout(200);
+    await p3.click("#wizStart"); await p3.fill("#wName", "Тройка");
+    for (const [w, t, h] of [[3, "18:00", 1], [4, "16:00", 1.5], [5, "19:30", 1]]) {
+      await p3.click(`#wSched [data-sw="${w}"]`);
+      await p3.fill(`#wSched .srow[data-w="${w}"] [data-k="time"]`, t);
+      await p3.evaluate(([w, h]) => { const el = document.querySelector(`#wSched .srow[data-w="${w}"] [data-k="dur"]`); el.value = String(h); el.dispatchEvent(new Event("change", { bubbles: true })); }, [w, h]);
+    }
+    await p3.click("#wNext");
+    const sum3 = await p3.locator(".hint").first().innerText();
+    ok("мастер: на шаге оплаты видно разное время по дням", sum3.includes("Ср 18:00") && sum3.includes("Чт 16:00 (1,5 ч)") && sum3.includes("Пт 19:30"), sum3);
+    await p3.fill("#wPrice", "1000"); await p3.click('#wMode [data-m="after"]'); await p3.click("#wNext2"); await p3.click("#wSave"); await p3.waitForTimeout(100);
+    const sch3 = await p3.evaluate(() => JSON.parse(localStorage.getItem("tutor-ledger-v1")).students[0].sched[0]);
+    ok("мастер: сохранились три дня с разным временем и длительностью", sch3.times[3] === "18:00" && sch3.times[4] === "16:00" && sch3.times[5] === "19:30" && sch3.durs[4] === 1.5, JSON.stringify(sch3));
+    await ctx3.close();
   } catch (e) { fail++; console.log("  ✗ Тест остановился: " + e.message.split("\n")[0]); }
 
   section("17. Ошибки в работе страницы");
