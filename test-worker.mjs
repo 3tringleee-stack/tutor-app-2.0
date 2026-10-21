@@ -1,5 +1,5 @@
 // Проверка бота без Telegram и Cloudflare: node test-worker.mjs
-import worker, { tgUserFrom, digestText, runDigests, runReminders, runLessonReminders } from "./worker.js";
+import worker, { savePing, usageLines, scoreLines, shareText, sharePage, tgUserFrom, digestText, runDigests, runReminders, runLessonReminders } from "./worker.js";
 const calls = [];
 globalThis.fetch = async (u, o) => { calls.push({ method: u.split("/").pop(), body: JSON.parse(o.body) }); return { json: async () => ({ ok: true }) }; };
 const env = { BOT_TOKEN: "123:abc", APP_URL: "https://example.github.io/tabel/", WEBHOOK_SECRET: "s3cret_s3cret_s3cret", AUTHOR_TG: "nikita" };
@@ -118,6 +118,7 @@ const t14 = digestText(JSON.parse(kv.get("d:777")), "2026-10-14").text;
 ok("утром: занятия на сегодня с темами", t14.includes("Сегодня, ср 14.10, 2 занятия") && t14.includes("• 16:00 Вера · Геометрия") && t14.includes("• 19:30 Саша"), t14.slice(0, 90));
 ok("неотмеченные: прежние + вчерашние, которые не отметили", t14.includes("Не отмечено: 2 занятия"));
 ok("переносы без даты и долг", t14.includes("Марта") && t14.includes("4 500 ₽"));
+ok("непробитые чеки в сводке", digestText({ data: { ...dig, receipts: 2 } }, "2026-10-14").text.includes("Не пробиты чеки: 2"));
 calls.length = 0;
 globalThis.fetch = async (u, o) => { calls.push({ method: u.split("/").pop(), body: JSON.parse(o.body) }); return { json: async () => ({ ok: true }) }; };
 let n = await runDigests(envS, Date.parse("2026-10-14T04:30:00Z"));      // 07:30 МСК — рано
@@ -203,6 +204,34 @@ ok("режим «в день занятия» — утром «Сегодня, �
 lrec = JSON.parse(kv.get("s:" + LID)); lrec.data.lr = ""; lrec.lsent = ""; kv.set("s:" + LID, JSON.stringify(lrec));
 ln = await runLessonReminders(envS, Date.parse("2026-10-14T16:10:00Z"));
 ok("выключено — не напоминает", ln === 0);
+
+// ---------- пробники у родителя ----------
+{
+  const d = { name: "Саша", bal: -3000, months: [], scores: [{ d: "05.09", exam: "ЕГЭ", score: 52, max: 100 }, { d: "03.10", exam: "ЕГЭ", score: 61, max: 100 }, { d: "17.10", exam: "ЕГЭ", score: 68, max: 100 }], goal: 80, goalExam: "ЕГЭ" };
+  ok("родитель в боте видит «52 → 61 → 68 из 100, цель 80»", shareText(d, 10).includes("Пробники ЕГЭ: 52 → 61 → 68 из 100, цель 80"), shareText(d, 10));
+  const html = sharePage(d);
+  ok("на странице — график с тремя точками и линией цели", (html.match(/<circle/g) || []).length === 3 && html.includes("цель 80") && html.includes("Пробники ЕГЭ"));
+  ok("без пробников — ничего лишнего", !shareText({ ...d, scores: [] }, 10).includes("Пробники") && !sharePage({ ...d, scores: undefined }).includes("<svg"));
+  ok("ОГЭ отдельно, цель ЕГЭ к нему не цепляется", scoreLines({ ...d, scores: [{ d: "1", exam: "ОГЭ", score: 20, max: 31 }] })[0] === "📈 Пробники ОГЭ: 20 из 31");
+}
+// ---------- счётчик пользователей ----------
+{
+  const meta = new Map();
+  const put0 = KV.put; KV.put = async (k, v, o) => { kv.set(k, v); if (o && o.metadata) meta.set(k, o.metadata); };
+  KV.list = async ({ prefix }) => ({ keys: [...kv.keys()].filter((k) => k.startsWith(prefix)).map((name) => ({ name, metadata: meta.get(name) })), list_complete: true });
+  const ping = (id, v) => savePing(new Request("https://x/ping", { method: "POST", body: JSON.stringify({ id, v }) }), envS);
+  ok("пинг принят", (await ping("a1b2c3d4e5f60708", "2026.10.21")).status === 204);
+  await ping("a1b2c3d4e5f60708", "2026.10.21");                                   // повтор в тот же день
+  await ping("ffffeeeeddddcccc", "2026.10.05");
+  ok("плохой номер отклонён (имена не принимаем)", (await ping("Никита", "1")).status === 400);
+  const old = new Date(Date.now() - 10 * 864e5).toISOString().slice(0, 10);
+  kv.set(`a:${old}:0123456789abcdef`, "2026.10.05"); meta.set(`a:${old}:0123456789abcdef`, { v: "2026.10.05" });
+  const u = (await usageLines(envS, Date.now())).join("\n");
+  ok("сегодня 2, за 7 дней 2, за 30 дней 3", u.includes("сегодня 2 · за 7 дней 2 · за 30 дней 3"), u);
+  ok("разбивка по версиям", u.includes("2026.10.21 — 1") && u.includes("2026.10.05 — 1"), u);
+  ok("в записи только номер и версия", [...kv.keys()].filter((k) => k.startsWith("a:")).every((k) => /^a:\d{4}-\d\d-\d\d:[a-f0-9]+$/.test(k)));
+  KV.put = put0;
+}
 
 console.log(fail ? `\nПРОВАЛЕНО: ${fail}` : `\nБот: все проверки пройдены (${pass})`);
 process.exit(fail ? 1 : 0);

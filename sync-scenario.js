@@ -10,6 +10,7 @@ const CS={
   setItem:(k,v,cb)=>{ if(failPtr>0 && /__n$/.test(k)){ failPtr--; return setTimeout(()=>cb("CLOSED"),1); } if(!/^bk/.test(k)) writes++; cloud[k]=v;setTimeout(()=>cb(null,true),1)},
   removeItems:(ks,cb)=>{ks.forEach(k=>delete cloud[k]);cb&&cb(null,true)},
 };
+global.fetch=async()=>({ok:false,status:503,json:async()=>({})}); // без настоящей сети
 let backShown=null, closeConf=null, backCb=null, actCb=null;
 global.window.Telegram={WebApp:{initData:"query_id=test&user=1",platform:"ios",ready(){},expand(){},isVersionAtLeast:()=>true,CloudStorage:CS,
   BackButton:{show(){backShown=true},hide(){backShown=false},onClick(f){backCb=f}},
@@ -51,7 +52,7 @@ setTimeout(async()=>{
     ok(names==="Арина","загружено из облака");
     put("m2026-10",[{id:"e9",type:"lesson",sid:"s1",date:"2026-10-02"}]); // отметили на телефоне
     els.back.classList.contains=()=>false;
-    await actCb(); await new Promise(r=>setTimeout(r,50));
+    await actCb(); await new Promise(r=>setTimeout(r,300));
     ok((T.months()["2026-10"]||[]).some(e=>e.id==="e9"),"после возврата в приложение видна отметка с другого устройства");
     // модалка
     T.change; 

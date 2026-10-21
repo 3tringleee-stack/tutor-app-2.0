@@ -158,6 +158,28 @@ function balanceLines(d) {
   else L.push("Долга нет, всё оплачено ✅");
   return L;
 }
+/* Пробники: по каждому экзамену — ряд баллов и цель */
+function scoreGroups(d) {
+  const g = {};
+  for (const r of Array.isArray(d.scores) ? d.scores : []) (g[r.exam || "Пробник"] = g[r.exam || "Пробник"] || []).push(r);
+  return Object.entries(g);
+}
+function scoreLines(d) {
+  return scoreGroups(d).map(([ex, list]) => {
+    const last = list[list.length - 1], goal = d.goal > 0 && ex === (d.goalExam || "ЕГЭ") ? `, цель ${d.goal}` : "";
+    return `📈 Пробники ${escH(ex)}: ${list.slice(-6).map((r) => r.score).join(" → ")} из ${last.max || 100}${goal}`;
+  });
+}
+function scoreSvg(list, goal, max) {
+  const W = 320, H = 130, P = 20, n = list.length, mx = max || 100;
+  const vals = list.map((r) => (r.score / (r.max || mx)) * mx).concat(goal > 0 ? [goal] : []);
+  const lo = Math.max(0, Math.floor((Math.min(...vals) - mx * 0.1) / 10) * 10), hi = Math.min(mx, Math.ceil((Math.max(...vals) + mx * 0.05) / 10) * 10) || mx;
+  const x = (i) => (n === 1 ? W / 2 : P + (i * (W - 2 * P)) / (n - 1)), y = (v) => H - P - ((Math.min(v, mx) - lo) / (hi - lo || 1)) * (H - 2 * P - 6);
+  const pts = list.map((r, i) => [x(i), y((r.score / (r.max || mx)) * mx)]);
+  const path = pts.map((p, i) => (i ? "L" : "M") + p[0].toFixed(1) + " " + p[1].toFixed(1)).join(" ");
+  const gl = goal > 0 ? `<line x1="0" x2="${W}" y1="${y(goal).toFixed(1)}" y2="${y(goal).toFixed(1)}" stroke="var(--green)" stroke-width="1.5" stroke-dasharray="5 4"/><text x="0" y="${(y(goal) - 4).toFixed(1)}" font-size="10" font-weight="700" fill="var(--green)">цель ${goal}</text>` : "";
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;overflow:visible" role="img" aria-label="График баллов">${gl}<path d="${path}" fill="none" stroke="var(--blue)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>${pts.map((p, i) => `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="4" fill="var(--paper)" stroke="var(--blue)" stroke-width="2"/><text x="${p[0].toFixed(1)}" y="${(p[1] - 8).toFixed(1)}" text-anchor="middle" font-size="11" font-weight="700" fill="var(--ink)">${escH(list[i].score)}</text><text x="${p[0].toFixed(1)}" y="${H - 4}" text-anchor="middle" font-size="9.5" fill="var(--muted)">${escH(list[i].d)}</text>`).join("")}</svg>`;
+}
 function shareText(d, maxRows) {
   const L = [`<b>${escH(d.name)}</b>`, ...(d.tutor ? ["Преподаватель: " + escH(d.tutor)] : []), ""];
   L.push(...balanceLines(d));
@@ -172,6 +194,7 @@ function shareText(d, maxRows) {
     }
   }
   if (d.next && d.next.length) L.push("", "<b>Ближайшие занятия</b>", ...d.next.map((n) => `• ${escH(n.wd)} ${escH(n.d)}${n.t ? ", " + escH(n.t) : ""}`));
+  const sc = scoreLines(d); if (sc.length) L.push("", ...sc);
   L.push("", `<i>Обновлено ${escH(d.upd || "")}</i>`);
   return L.join("\n");
 }
@@ -194,11 +217,12 @@ function sharePage(d) {
     const k = KIND[r.k] || ["•", () => ""];
     return `<li class="${escH(r.k)}"><span class="ic">${k[0]}</span><div><b>${escH(r.d)} ${escH(r.wd || "")}${r.t ? ", " + escH(r.t) : ""}</b><span>${escH(k[1](r))}</span>${r.note ? `<em>${escH(r.note)}</em>` : ""}</div></li>`; }).join("")}</ul>`).join("");
   const next = d.next && d.next.length ? `<h2>Ближайшие занятия</h2><ul>${d.next.map((n) => `<li><span class="ic">🗓</span><div><b>${escH(n.wd)} ${escH(n.d)}${n.t ? ", " + escH(n.t) : ""}</b></div></li>`).join("")}</ul>` : "";
+  const scores = scoreGroups(d).map(([ex, list]) => `<h2>Пробники ${escH(ex)}</h2>${scoreSvg(list, d.goal > 0 && ex === (d.goalExam || "ЕГЭ") ? d.goal : 0, list[list.length - 1].max || 100)}`).join("");
   const neg = d.bal < 0;
   return `<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${escH(d.name)} — занятия и оплата</title><meta name="robots" content="noindex">
-<style>:root{--bg:#F5F4F2;--paper:#fff;--ink:#24202B;--muted:#7A7486;--line:#E7E2DC;--red:#A8405A;--green:#3C7A63}
-@media (prefers-color-scheme:dark){:root{--bg:#17151C;--paper:#201D28;--ink:#EDE9F2;--muted:#9E97AC;--line:#332E3E;--red:#E8909F;--green:#88C9AE}}
+<style>:root{--bg:#F5F4F2;--paper:#fff;--ink:#24202B;--muted:#7A7486;--line:#E7E2DC;--red:#A8405A;--green:#3C7A63;--blue:#3E5C9A}
+@media (prefers-color-scheme:dark){:root{--bg:#17151C;--paper:#201D28;--ink:#EDE9F2;--muted:#9E97AC;--line:#332E3E;--red:#E8909F;--green:#88C9AE;--blue:#9DB4E8}}
 body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 -apple-system,system-ui,"Segoe UI",Roboto,sans-serif}
 main{max-width:560px;margin:0 auto;padding:20px 16px 40px}.card{background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:16px 18px;margin-bottom:12px}
 h1{font-size:22px;margin:0}.sub{color:var(--muted);margin-top:2px}.bal{font-size:16px;margin-top:12px}.bal b{font-size:22px;color:${neg ? "var(--red)" : "var(--green)"}}
@@ -206,7 +230,7 @@ h2{font-size:15px;margin:4px 0 8px}ul{list-style:none;margin:0;padding:0}li{disp
 li .ic{width:22px;flex:none;text-align:center}li b{display:block;font-weight:600}li span{color:var(--muted)}li em{display:block;font-style:normal;font-size:13.5px;margin-top:2px}
 .upd{color:var(--muted);font-size:13px;text-align:center}</style></head><body><main>
 <div class="card"><h1>${escH(d.name)}</h1>${d.tutor ? `<div class="sub">Преподаватель: ${escH(d.tutor)}</div>` : ""}<div class="bal">${balanceLines(d).join("<br>")}</div></div>
-${blocks ? `<div class="card">${blocks}</div>` : ""}${next ? `<div class="card">${next}</div>` : ""}
+${blocks ? `<div class="card">${blocks}</div>` : ""}${next ? `<div class="card">${next}</div>` : ""}${scores ? `<div class="card">${scores}</div>` : ""}
 <div class="upd">Обновлено ${escH(d.upd || "")} · «Табель»</div></main></body></html>`;
 }
 
@@ -317,8 +341,9 @@ function digestText(rec, today) {
   if (unmarked > 0) extra.push(`⚠️ Не отмечено: ${unmarked} ${pluralRu(unmarked, "занятие", "занятия", "занятий")}`);
   if (d.moves && d.moves.length) extra.push(`↪️ Переносы без новой даты: ${d.moves.join(", ")}`);
   if (d.debt > 0) extra.push(`💰 Вам должны: ${rubS(d.debt)}`);
+  if (d.receipts > 0) extra.push(`🧾 Не пробиты чеки: ${d.receipts}`);
   if (extra.length) L.push("", ...extra);
-  return { text: L.join("\n"), worth: todays.length > 0 || unmarked > 0 || (d.moves && d.moves.length > 0) };
+  return { text: L.join("\n"), worth: todays.length > 0 || unmarked > 0 || (d.moves && d.moves.length > 0) || d.receipts > 0 };
 }
 async function runDigests(env, now = Date.now()) {
   if (!env.SHARES || !env.SHARES.list) return 0;
@@ -385,6 +410,35 @@ async function runLessonReminders(env, now = Date.now()) {
   return n;
 }
 
+/* Счётчик пользователей: приложение раз в день присылает анонимный номер (хэш, без имён и данных).
+   Храним только «в этот день был кто-то с таким номером» и версию — 35 дней, потом запись исчезает сама. */
+const dayKey = (t) => new Date(t).toISOString().slice(0, 10);
+async function savePing(request, env) {
+  if (!env.SHARES) return new Response(null, { status: 204, headers: CORS });
+  let b = {}; try { b = await request.json(); } catch (e) {}
+  const id = String(b.id || ""), v = String(b.v || "").slice(0, 16).replace(/[^0-9.]/g, "");
+  if (!/^[a-f0-9]{12,32}$/.test(id)) return new Response("bad id", { status: 400, headers: CORS });
+  await env.SHARES.put(`a:${dayKey(Date.now())}:${id}`, v || "?", { expirationTtl: 35 * 864e2, metadata: { v: v || "?" } });
+  return new Response(null, { status: 204, headers: CORS });
+}
+async function usageLines(env, now) {
+  if (!env.SHARES || !env.SHARES.list) return [];
+  const sets = [];   // по дням, от сегодня назад
+  const vers = {};
+  for (let i = 0; i < 30; i++) {
+    const ids = new Set(); let cursor;
+    do {
+      const r = await env.SHARES.list({ prefix: `a:${dayKey(now - i * 864e5)}:`, cursor });
+      for (const k of r.keys) { ids.add(k.name.split(":")[2]); if (i < 7) vers[k.name.split(":")[2]] = vers[k.name.split(":")[2]] || (k.metadata && k.metadata.v); }
+      cursor = r.list_complete ? null : r.cursor;
+    } while (cursor);
+    sets.push(ids);
+  }
+  const vc = {}; for (const v of Object.values(vers)) vc[v || "?"] = (vc[v || "?"] || 0) + 1;
+  const uniq = (n) => new Set(sets.slice(0, n).flatMap((s) => [...s])).size;
+  return ["Пользователи Табеля (без имён): сегодня " + uniq(1) + " · за 7 дней " + uniq(7) + " · за 30 дней " + uniq(30),
+    ...(Object.keys(vc).length ? ["Версии за неделю: " + Object.entries(vc).sort((a, b) => b[1] - a[1]).map(([v, n]) => v + " — " + n).join(", ")] : [])];
+}
 /* Подробности для /status: когда последний раз срабатывал запуск по часам и что с каждой сводкой */
 const msk = (t) => new Date(t).toLocaleString("ru-RU", { timeZone: "Europe/Moscow", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 async function digestStatusLines(env) {
@@ -411,7 +465,7 @@ async function testDigests(env) {
   }
   return n;
 }
-export { tgUserFrom, digestText, runDigests, runReminders, remindText, runLessonReminders, lessonText };
+export { savePing, usageLines, scoreLines, shareText, sharePage, tgUserFrom, digestText, runDigests, runReminders, remindText, runLessonReminders, lessonText };
 export default {
   async scheduled(event, env, ctx) {
     const t = event.scheduledTime || Date.now();
@@ -454,6 +508,7 @@ export default {
         "Ждут доставки сообщений: " + (info.pending_update_count || 0),
         info.last_error_message ? "Последняя ошибка (" + when + " МСК): " + info.last_error_message : "Ошибок доставки нет ✅",
         "Хранилище ссылок SHARES: " + (env.SHARES ? "подключено ✅" : "не подключено"),
+        ...(await usageLines(env, Date.now())),
         ...(await digestStatusLines(env)),
       ];
       return new Response(lines.join("\n"), { headers: { "content-type": "text/plain; charset=utf-8" } });
@@ -466,6 +521,8 @@ export default {
       const n = await testDigests(env);
       return new Response(n ? `Отправлено сводок: ${n}. Проверьте чат с ботом.` : "Отправлять некому: в Табеле не включена утренняя сводка (аватар → «Утренняя сводка»).", { headers: { "content-type": "text/plain; charset=utf-8" } });
     }
+    if (url.pathname === "/ping" && request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
+    if (url.pathname === "/ping" && request.method === "POST") return savePing(request, env);
     if (url.pathname === "/digest" && request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
     if (url.pathname === "/digest" && (request.method === "POST" || request.method === "DELETE")) return saveDigest(request, env);
 

@@ -295,7 +295,7 @@ const otherDays = (() => { const out = []; for (let i = 1; out.length < 4 && i <
     section("12. Настройки и оформление");
     await $("#meBtn").click(); await page.waitForTimeout(80);
     const sett = await text("#modal");
-    ok("лишних настроек нет (фон, цвет, название, напоминание)", !/Основной цвет|Своя картинка|Название|Напоминать отметить/.test(sett), sett.slice(0, 300));
+    ok("лишних настроек нет (фон, цвет, название, напоминание)", !/Основной цвет|Своя картинка|Название приложения|Напоминать отметить/.test(sett), sett.slice(0, 300));
     await $('#themePick [data-theme="night"]').click(); await page.waitForTimeout(80);
     ok("тема «Ночь» включает тёмный режим", await page.evaluate(() => document.documentElement.dataset.theme) === "dark");
     await $('#themePick [data-theme="tabel"]').click();
@@ -421,6 +421,48 @@ const otherDays = (() => { const out = []; for (let i = 1; out.length < 4 && i <
     const sch3 = await p3.evaluate(() => JSON.parse(localStorage.getItem("tutor-ledger-v1")).students[0].sched[0]);
     ok("мастер: сохранились три дня с разным временем и длительностью", sch3.times[3] === "18:00" && sch3.times[4] === "16:00" && sch3.times[5] === "19:30" && sch3.durs[4] === 1.5, JSON.stringify(sch3));
     await ctx3.close();
+
+    // самозанятый: после оплаты — напоминание пробить чек
+    const ctx4 = await browser.newContext({ viewport: { width: W, height: H }, locale: "ru-RU" });
+    await ctx4.route("**/telegram-web-app.js", r => r.fulfill({ contentType: "application/javascript", body: "" }));
+    const p4 = await ctx4.newPage();
+    await p4.addInitScript(() => { localStorage.setItem("tutor-ledger-v1", JSON.stringify({ students: [{ id: "k", name: "Катя", price: 1000, hours: 1, mode: "after", sched: [] }], months: {} })); localStorage.setItem("tutor-ui", JSON.stringify({ obHide: true })); });
+    await p4.goto(APP); await p4.waitForTimeout(200);
+    await p4.click("#meAva"); await p4.waitForTimeout(150);
+    await p4.check("#uiSelf"); await p4.click("#prClose");
+    await p4.click('[data-tab="st"]'); await p4.click('[data-q="payment"]'); await p4.waitForTimeout(100);
+    await p4.fill("#fAmt", "4000"); await p4.click("#fSave"); await p4.waitForTimeout(150);
+    const rm = await p4.locator("#modal").innerText();
+    ok("самозанятый: после оплаты — «Пробейте чек» с услугой и суммой", rm.includes("Пробейте чек") && rm.includes("Репетиторские услуги,") && /4\s000/.test(rm), rm.slice(0, 160));
+    await p4.click('#modal [data-rclose="1"]'); await p4.waitForTimeout(100);
+    const pay = await p4.evaluate(() => Object.values(JSON.parse(localStorage.getItem("tutor-ledger-v1")).months).flat().find(e => e.type === "payment"));
+    ok("«Чек пробит» запоминается у оплаты", !!(pay && pay.receipt), JSON.stringify(pay));
+    await p4.click('[data-tab="rep"]'); await p4.waitForTimeout(100);
+    const rt = await p4.locator("#view").innerText();
+    ok("в «Отчёте» — налог 4% и «1 из 1» чеков", rt.includes("Налог самозанятого") && /160\s₽/.test(rt) && rt.includes("1 из 1"), rt.slice(0, 200));
+    await ctx4.close();
+
+    // пробники: добавить балл → график в карточке; анонимный пинг раз в день
+    const ctx5 = await browser.newContext({ viewport: { width: W, height: H }, locale: "ru-RU" });
+    await ctx5.route("**/telegram-web-app.js", r => r.fulfill({ contentType: "application/javascript", body: "" }));
+    const pings = [];
+    await ctx5.route("**/ping", r => { pings.push(r.request().postData()); r.fulfill({ status: 204, body: "" }); });
+    const p5 = await ctx5.newPage();
+    await p5.addInitScript(() => { if (!localStorage.getItem("tutor-ledger-v1")) localStorage.setItem("tutor-ledger-v1", JSON.stringify({ students: [{ id: "g", name: "Глеб", price: 1000, hours: 1, mode: "after", sched: [], scores: [{ id: "x1", date: "2026-09-10", exam: "ЕГЭ", score: 54, max: 100 }] }], months: {} })); localStorage.setItem("tutor-ui", JSON.stringify({ obHide: true })); });
+    await p5.goto(APP); await p5.waitForTimeout(200);
+    await p5.click('[data-tab="st"]'); await p5.click('[data-open="g"]'); await p5.waitForTimeout(80);
+    await p5.click("#dScore"); await p5.fill("#scVal", "71"); await p5.click("#scSave"); await p5.waitForTimeout(100);
+    await p5.click("#dGoal"); await p5.fill("#glVal", "85"); await p5.click("#glSave"); await p5.waitForTimeout(100);
+    const det5 = await p5.locator("#det").innerText();
+    ok("пробники: в карточке «71 из 100», рост +17 и цель 85", det5.includes("71 из 100") && det5.includes("+17") && det5.includes("ЕГЭ: 85"), det5.slice(0, 300));
+    ok("пробники: на графике 2 точки и пунктир цели", await p5.locator("#det .scchart circle").count() === 2 && await p5.locator("#det .sc-goal").count() === 1);
+    await p5.click("[data-scdel]"); await p5.click("[data-scdel]"); await p5.waitForTimeout(80);
+    ok("пробники: удаление в два нажатия", await p5.locator("#det .scchart circle").count() === 1);
+    await p5.waitForTimeout(4300);
+    ok("счётчик: один анонимный пинг — только хэш и версия", pings.length === 1 && /^\{"id":"[a-f0-9]{16}","v":"20\d\d\.\d\d\.\d\d"\}$/.test(pings[0]), pings.join(" | "));
+    await p5.reload(); await p5.waitForTimeout(4500);
+    ok("счётчик: в тот же день повторно не шлёт", pings.length === 1, String(pings.length));
+    await ctx5.close();
   } catch (e) { fail++; console.log("  ✗ Тест остановился: " + e.message.split("\n")[0]); }
 
   section("17. Ошибки в работе страницы");

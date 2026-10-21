@@ -301,5 +301,40 @@ console.log("\n15. Тексты для родителей — без машин�
   T.setUI({subjects:[]});
 }
 
+{
+  console.log("\n21. Чеки «Мой налог» и налог за месяц");
+  T.setUI({self:true, selfFrom:"2026-10-01", taxRate:4, taxService:""});
+  T.set([S({id:"c",name:"Катя",price:1000,sched:sch([2],"17:00",1)})],{"2026-09":[{id:"old",sid:"c",type:"payment",date:"2026-09-20",amount:5000}],"2026-10":[
+    {id:"p1",sid:"c",type:"payment",date:"2026-10-02",amount:4000},
+    {id:"p2",sid:"c",type:"payment",date:"2026-10-09",amount:2500,receipt:"2026-10-09"},
+    {id:"l1",sid:"c",type:"lesson",date:"2026-10-06",hours:1},
+    {id:"x1",sid:"c",type:"cancel",status:"free",date:"2026-10-08",hours:1}]});
+  eq("к пробитию — только оплаты после включения и без чека", T.receiptsDue().map(e=>e.id).join(), "p1");
+  const tx=T.taxFor("2026-10");
+  eq("налог 4% от полученного за месяц", tx.got+"|"+tx.tax, "6500|260");
+  eq("чеки: 1 из 2, оплатить до 28.11", tx.done+"/"+tx.total+" "+tx.due, "1/2 28.11.2026");
+  eq("название услуги с месяцем", T.serviceName("2026-10-02"), "Репетиторские услуги, октябрь 2026");
+  const ys=T.yearStats("2026"), oct=ys.months12[9];
+  eq("доход: заработано, получено и потеряно на отменах за октябрь", oct.c+"|"+oct.p+"|"+oct.l, "1000|6500|1000");
+  T.setUI({self:false});
+  eq("не самозанятый — чеки не просим", T.receiptsDue().length, 0);
+}
+
+{
+  console.log("\n22. Пробники: баллы, график, родитель");
+  T.set([S({id:"e",name:"Саша",goalScore:80,goalExam:"ЕГЭ",share:{id:"z".repeat(22),wk:"k".repeat(32)},scores:[
+    {id:"r3",date:"2026-10-17",exam:"ЕГЭ",score:68,max:100,note:""},
+    {id:"r1",date:"2026-09-05",exam:"ЕГЭ",score:52,max:100,note:"часть 2 — 3 из 7"},
+    {id:"r2",date:"2026-10-03",exam:"ЕГЭ",score:61,max:100}]})],{});
+  const st=T.students()[0];
+  eq("результаты идут по дате", T.scoresOf(st).map(r=>r.score), [52,61,68]);
+  const svg=T.scoreChart(T.scoresOf(st),80,100);
+  eq("на графике 3 точки и линия цели", (svg.match(/<circle/g)||[]).length+"|"+svg.includes("цель 80"), "3|true");
+  eq("без результатов графика нет", T.scoreChart([],80,100), "");
+  const sn=T.shareSnapshot(st);
+  eq("родителю уходят баллы и цель", sn.scores.map(r=>r.score+"/"+r.max+" "+r.d).join(", ")+" · цель "+sn.goal, "52/100 05.09, 61/100 03.10, 68/100 17.10 · цель 80");
+  eq("комментарий к пробнику родителю не уходит", JSON.stringify(sn).includes("часть 2"), false);
+}
+
 console.log("\n" + (fail? `ПРОВАЛЕНО: ${fail}, пройдено: ${pass}` : `Все проверки пройдены: ${pass}`));
 process.exit(fail?1:0);
