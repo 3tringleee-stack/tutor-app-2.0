@@ -152,6 +152,10 @@ details.arch[open] summary::before{transform:rotate(90deg)}
 .nt.other summary .sn{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;font-size:13px}
 .nt.other[open] summary .sn{display:none}
 .nt.other .full{margin-top:3px;color:var(--ink);opacity:.85}
+.rcard{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
+.rcard div{background:var(--grid);border-radius:10px;padding:8px 10px}
+.rcard span{display:block;font-size:12px;color:var(--muted)}
+.rcard b{font-size:15px;word-break:break-word}
 .subjpick{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
 .subjpick .tchip.on{background:hsl(var(--h) 70% 50% / .28);border-color:hsl(var(--h) 60% 55%)}
 .subjpick .tchip.on::before{content:"✓ "}
@@ -388,6 +392,14 @@ textarea{min-height:60px;resize:vertical}
 .hrow .ht i{display:block;height:100%;border-radius:99px;background:var(--blue);transition:width .5s cubic-bezier(.22,.7,.3,1)}
 .hrow .hv{font-size:12.5px;font-weight:700;white-space:nowrap;min-width:52px;text-align:right}
 .hrow.zero .hv{color:var(--muted);font-weight:500}
+.hrow .ht2{display:grid;gap:3px}
+.hrow.inc .ht{height:10px}
+.hrow .ht.pay{height:6px}
+.hrow .ht.pay i{background:var(--c-done,var(--green))}
+.hrow .ht .lost{position:absolute;top:0;bottom:0;background:repeating-linear-gradient(45deg,var(--c-cancel,var(--red)) 0 3px,transparent 3px 6px);opacity:.6;border-radius:0 99px 99px 0}
+.hrow .hv small{display:block;font-size:11px;font-weight:600;color:var(--c-done,var(--green))}
+.lg{display:inline-block;width:14px;height:8px;border-radius:4px;vertical-align:middle}
+.lg.earn{background:var(--blue)} .lg.got{background:var(--c-done,var(--green))} .lg.lostc{background:repeating-linear-gradient(45deg,var(--c-cancel,var(--red)) 0 3px,transparent 3px 6px)}
 .hrow.now .hl{color:var(--ink);font-weight:700}
 .hrow.now .ht{box-shadow:0 0 0 2px var(--blue-soft)}
 .rank{display:flex;justify-content:space-between;gap:8px;padding:7px 0;border-top:1px solid var(--line);font-size:14px}
@@ -1336,6 +1348,41 @@ function onboarding(){
     <div class="ob-f">Долг — ученик должен вам, аванс — заплатил вперёд.</div>
   </div>`;
 }
+/* ---------- чеки «Мой налог» для самозанятых ----------
+   Каждая оплата — повод пробить чек. Табель подсказывает название услуги и сумму,
+   отмечает «чек пробит» и считает налог за месяц (4% с физлиц, 6% с организаций). */
+const LKNPD="https://lknpd.nalog.ru/";
+const isSelf=()=>!!ui.self;
+const taxRate=()=>ui.taxRate===6?6:4;
+const serviceName=d=>`${(ui.taxService||"Репетиторские услуги").trim()}, ${MONTHS[+d.slice(5,7)-1]} ${d.slice(0,4)}`;
+function receiptsDue(){
+  if(!isSelf()) return [];
+  const from=ui.selfFrom||"0000";
+  return allEvents().filter(e=>e.type==="payment" && !e.receipt && e.date>=from && e.date<=today() && byId(e.sid)).sort((a,b)=>a.date<b.date?-1:1);
+}
+function taxFor(key){
+  let got=0, done=0, total=0;
+  allEvents().forEach(e=>{ if(e.type==="payment" && e.date.slice(0,7)===key){ got+=+e.amount||0; total++; if(e.receipt) done++; } });
+  const [y,m]=key.split("-").map(Number), nk=m===12?(y+1)+"-01":y+"-"+pad(m+1);
+  return {got,tax:Math.round(got*taxRate()/100),done,total,due:"28."+nk.slice(5)+"."+nk.slice(0,4)};
+}
+function receiptRow(e){
+  const st=byId(e.sid);
+  return `<div class="prow rcpt"><div class="who"><b>${rub(e.amount)}</b><small>${esc(st?st.name:"")} · ${fmtDate(e.date)} · «${esc(serviceName(e.date))}»</small></div>
+    <div class="btns"><button class="sm" type="button" data-rcopy="${e.id}">Скопировать</button><button class="sm" type="button" data-rnalog="1">«Мой налог»</button><button class="sm done" type="button" data-rdone="${e.id}">${ICO.check}<span>Чек пробит</span></button></div></div>`;
+}
+function openReceipt(e){
+  if(!e || !isSelf()) return;
+  openModal(`<h3>Пробейте чек</h3>
+    <div class="hint" style="margin-top:-6px">Оплата получена — по закону для самозанятого нужен чек в «Мой налог».</div>
+    <div class="rcard"><div><span>Услуга</span><b>${esc(serviceName(e.date))}</b></div><div><span>Сумма</span><b>${rub(e.amount)}</b></div><div><span>Дата</span><b>${fmtDate(e.date)}.${e.date.slice(0,4)}</b></div><div><span>Покупатель</span><b>физическое лицо</b></div></div>
+    <div class="foot" style="margin-top:10px"><button class="secondary" type="button" data-rcopy="${e.id}">Скопировать название</button><button class="secondary" type="button" data-rnalog="1">Открыть «Мой налог»</button></div>
+    <div class="hint" id="rcHint"></div>
+    <div class="foot"><button class="secondary" type="button" id="rcLater">Позже</button><button class="primary" type="button" data-rdone="${e.id}" data-rclose="1">${ICO.check} Чек пробит</button></div>`);
+  $("rcLater").onclick=closeModal;
+}
+function markReceipt(id){ change(()=>_set(id,x=>({...x,receipt:today()}))); }
+
 /* Переносы без новой даты — видны на любой вкладке, пока дату не назначат */
 const waitingMoves=()=>allEvents().filter(e=>e.type==="moved"&&!e.toDate&&byId(e.sid)).sort((a,b)=>a.date<b.date?-1:1);
 function agoText(d){ const n=daysBetween(d,today()); return n<=0?"сегодня":n===1?"вчера":n+" "+plural(n,"день","дня","дней")+" назад"; }
@@ -1378,6 +1425,10 @@ function viewToday(){
     if(days.length>shown.length){ const rest=days.slice(shown.length).reduce((a,d)=>a+byDay[d].length,0);
       side+=`<button class="secondary" type="button" data-moreunmarked="1" style="margin-top:10px;width:100%">Показать ещё ${rest} ${plural(rest,"занятие","занятия","занятий")} за ${days.length-shown.length} ${plural(days.length-shown.length,"день","дня","дней")}</button>`; }
     side+="</div>";
+  }
+  const rd=receiptsDue();
+  if(rd.length){
+    side+=`<div class="sheet box" style="margin-top:14px"><h2>Чеки к пробитию · ${rd.length}</h2><div class="hint" style="margin-top:0">Пробейте чек в «Мой налог» и отметьте здесь. Название услуги можно скопировать.</div>`+rd.slice(0,6).map(receiptRow).join("")+(rd.length>6?`<div class="hint">И ещё ${rd.length-6} — во вкладке «Отчёт».</div>`:"")+"</div>";
   }
   const pend=allEvents().filter(e=>e.type==="cancel"&&e.status==="pending").sort((a,b)=>a.date<b.date?-1:1);
   if(pend.length){
@@ -1567,19 +1618,33 @@ function viewRep(){
       <div><b>${rub(tot.paid)}</b><span>получено</span></div>
       <div><b>${rub(tot.bill)}</b><span>выставить к оплате</span></div>
     </div></div>
+    ${viewTax(repMonth)}
     ${viewPayCheck(repMonth)}
     <div class="cols wide"><div class="sheet box">${rows}</div><div>${viewYear(repMonth.slice(0,4))}${viewAnalytics(repMonth.slice(0,4))}</div></div>`;
+}
+function viewTax(key){
+  if(!isSelf()) return `<div class="sheet box"><h2>Налог и чеки</h2><div class="setrow"><div class="lbl"><b>Вы самозанятый?</b><span>Табель напомнит пробить чек после каждой оплаты и посчитает налог за месяц.</span></div><div class="ctl"><button class="sm done" type="button" data-selfon="1">Включить</button></div></div></div>`;
+  const t=taxFor(key), due=receiptsDue().filter(e=>e.date.slice(0,7)===key);
+  return `<div class="sheet box"><h2>Налог самозанятого · ${monthLabel(key)}</h2>
+    <div class="kpi">
+      <div><b>${rub(t.got)}</b><span>получено оплат</span></div>
+      <div><b>${rub(t.tax)}</b><span>налог ${taxRate()}%</span></div>
+      <div><b>${t.done} из ${t.total}</b><span>чеков пробито</span></div>
+      <div><b>до ${t.due.slice(0,5)}</b><span>оплатить налог</span></div>
+    </div>
+    <div class="hint">Налог придёт в «Мой налог» к 12-му числу, оплатить — до ${t.due}. Пока не израсходован налоговый вычет 10 000 ₽, ставка фактически ниже: 3% вместо 4% (4% вместо 6%).</div>
+    ${due.length?due.map(receiptRow).join(""):(t.total?`<div class="insight">Все чеки за ${monthLabel(key)} пробиты ✅</div>`:"")}</div>`;
 }
 function yearStats(y){
   const months12=[]; let totH=0,totC=0,totP=0,held=0,lost=0,canc=0,moved=0;
   const perStudent={};
   for(let i=1;i<=12;i++){
-    const k=y+"-"+pad(i); let h=0,c=0,p=0;
+    const k=y+"-"+pad(i); let h=0,c=0,p=0,l=0;
     students.forEach(st=>{
       (months[k]||[]).filter(e=>e.sid===st.id).forEach(e=>{
         if(e.type==="lesson"){ h+=hoursOf(e,st); held++; }
         if(e.type==="payment") p+=+e.amount||0;
-        if(e.type==="cancel"){ canc++; if(e.status==="free") lost+=hoursOf(e,st)*rateOf(e,st); }
+        if(e.type==="cancel"){ canc++; if(e.status==="free"){ const v=hoursOf(e,st)*rateOf(e,st); lost+=v; l+=v; } }
         if(e.type==="moved") moved++;
         const cost=costOf(e,st); c+=cost;
         if(cost||e.type==="lesson"){
@@ -1588,7 +1653,7 @@ function yearStats(y){
         }
       });
     });
-    months12.push({k,month:i,h,c,p}); totH+=h; totC+=c; totP+=p;
+    months12.push({k,month:i,h,c,p,l}); totH+=h; totC+=c; totP+=p;
   }
   const activeM=months12.filter(m=>m.c>0||m.h>0);
   const avg=activeM.length?totC/activeM.length:0;
@@ -1599,14 +1664,15 @@ function yearStats(y){
 function viewAnalytics(y){
   const d=yearStats(y);
   if(!d.activeM.length) return `<div class="sheet box"><h2>Аналитика ${y}</h2>${emptyBox("Пока нечего показать","Статистика появится, как только вы отметите первые проведённые занятия.","")}</div>`;
-  const max=Math.max(...d.months12.map(m=>m.c),1);
+  const max=Math.max(...d.months12.map(m=>Math.max(m.c,m.p,m.c+m.l)),1);
   const nowM=+today().slice(5,7);
-  const bars=d.months12.map(m=>`<div class="hrow ${m.c?"":"zero"} ${m.month===nowM?"now":""}" title="${MONTHS[m.month-1]}: ${rub(m.c)}">
+  const pc=v=>Math.round(v/max*1000)/10;
+  const bars=d.months12.map(m=>`<div class="hrow inc ${m.c||m.p?"":"zero"} ${m.month===nowM?"now":""}" title="${MONTHS[m.month-1]}: заработано ${rub(m.c)}, получено ${rub(m.p)}${m.l?", потеряно на отменах "+rub(m.l):""}">
     <span class="hl">${MONTHS[m.month-1].slice(0,3)}${m.month===nowM?" •":""}</span>
-    <span class="ht"><i style="width:${Math.round((m.c/max)*100)}%"></i></span>
-    <span class="hv">${m.c?rub(m.c):"—"}</span></div>`).join("");
+    <span class="ht2"><span class="ht"><i style="width:${pc(m.c)}%"></i><b class="lost" style="left:${pc(m.c)}%;width:${pc(m.l)}%"></b></span><span class="ht pay"><i style="width:${pc(m.p)}%"></i></span></span>
+    <span class="hv">${m.c||m.p?rub(m.c):"—"}${m.p&&Math.round(m.p)!==Math.round(m.c)?`<small>${rub(m.p)}</small>`:""}</span></div>`).join("");
   const maxS=d.rank.length?d.rank[0].sum:1;
-  const ranks=d.rank.slice(0,8).map(r=>`<div class="rank"><div class="rl">${esc(r.name)} <span class="hint" style="margin:0">· ${fmtH(r.hours)}</span>
+  const ranks=d.rank.slice(0,8).map(r=>`<div class="rank"><div class="rl">${esc(r.name)} <span class="hint" style="margin:0">· ${fmtH(r.hours)} · ${Math.round(r.sum/Math.max(d.totC,1)*100)}%</span>
     <div class="rb"><i style="width:${Math.round((r.sum/maxS)*100)}%"></i></div></div><b>${rub(r.sum)}</b></div>`).join("");
   const perH = d.totH ? d.totC/d.totH : 0;
   const ins=[];
@@ -1622,8 +1688,8 @@ function viewAnalytics(y){
       <div><b>${rub(perH)}</b><span>средняя ставка в час</span></div>
     </div>
     <div class="chart">
-      <div class="ct">Заработано по месяцам</div>
-      <div class="cs">Полная полоса — лучший месяц, ${rub(max)}.</div>
+      <div class="ct">Доход по месяцам</div>
+      <div class="legend" style="margin:4px 0 8px"><span><i class="lg earn"></i>заработано</span><span><i class="lg got"></i>получено</span>${d.lost>0?'<span><i class="lg lostc"></i>потеряно на отменах</span>':""}</div>
       <div class="hbars">${bars}</div>
     </div>
     ${ins.map(t=>`<div class="insight">${t}</div>`).join("")}
@@ -1802,6 +1868,16 @@ Object.entries(ACCENTS).map(([k,v])=>`<option value="${k}" ${ui.accent===k?"sele
       </div>
 
       <div class="sheet box" style="margin-top:14px">
+        <h2>Чеки «Мой налог»</h2>
+        <div class="setrow"><div class="lbl"><b>Я самозанятый</b><span>После каждой оплаты — напоминание пробить чек, во вкладке «Отчёт» — налог за месяц</span></div>
+          <div class="ctl"><label><input type="checkbox" id="uiSelf" ${ui.self?"checked":""} style="width:auto;margin-right:6px">да</label></div></div>
+        <div class="setrow"><div class="lbl"><b>Название услуги в чеке</b><span>К нему сам добавится месяц: «${esc(serviceName(today()))}»</span></div>
+          <div class="ctl"><input id="uiTaxSvc" value="${esc(ui.taxService||"Репетиторские услуги")}" style="max-width:220px"></div></div>
+        <div class="setrow"><div class="lbl"><b>Ставка налога</b><span>Ученики и родители — физлица, это 4%</span></div>
+          <div class="ctl"><select id="uiTaxRate"><option value="4" ${taxRate()===4?"selected":""}>4% — с физлиц</option><option value="6" ${taxRate()===6?"selected":""}>6% — с организаций</option></select></div></div>
+      </div>
+
+      <div class="sheet box" style="margin-top:14px">
         <h2>Утренняя сводка</h2>
         <div class="hint" style="margin-top:0">Каждое утро бот присылает в Telegram: занятия на сегодня с темами, что не отмечено, переносы без даты и сколько вам должны. В выходной без дел — не беспокоит.</div>
         <div class="setrow"><div class="lbl"><b>Присылать</b><span id="digSt">${digestStatusText()}</span></div>
@@ -1826,6 +1902,9 @@ function bindSettings(){
   if($("themePick")) $("themePick").onclick=e=>{ const b=e.target.closest("[data-theme]"); if(!b) return;
     applyTheme(b.dataset.theme); refresh(); render(); };
   $("uiTheme").onchange=()=>{ ui.theme=$("uiTheme").value; ui.themeId=""; saveUI(); };
+  if($("uiSelf")) $("uiSelf").onchange=()=>{ ui.self=$("uiSelf").checked; if(ui.self && !ui.selfFrom) ui.selfFrom=today().slice(0,7)+"-01"; saveUI(); render(); };
+  if($("uiTaxSvc")) $("uiTaxSvc").onchange=()=>{ ui.taxService=$("uiTaxSvc").value.trim(); saveUI(); refresh(); };
+  if($("uiTaxRate")) $("uiTaxRate").onchange=()=>{ ui.taxRate=+$("uiTaxRate").value; saveUI(); render(); };
   if($("uiDigest")) $("uiDigest").onchange=()=>{ const v=+$("uiDigest").value||0; ui.digest=v||0; saveUI(); pushDigest(true, !v); };
   if($("uiOb")) $("uiOb").onclick=()=>{ ui.obHide=false; ui.obRep=false; ui.obForce=true; saveUI(); closeModal(); tab="today"; render(); };
   $("uiDense").onchange=()=>{ ui.dense=$("uiDense").checked; saveUI(); };
@@ -1923,6 +2002,10 @@ document.addEventListener("click",e=>{
   else if(a.setdate) openSetDate(a.setdate);
   else if(a.undomoved) undoSlot(findEv(a.undomoved));
   else if(a.settopic && slotRegistry[a.settopic]){ const sl=slotRegistry[a.settopic][0]; const tpv=a.tp||""; if(sl && sl.ev) change(()=>_set(sl.ev.id,x=>({...x,topic:tpv}))); }
+  else if(a.rcopy){ const e=findEv(a.rcopy); if(e) copyPlain(serviceName(e.date), ok=>{ const h=document.getElementById("rcHint"); if(h) h.textContent=ok?"Название скопировано — вставьте его в «Мой налог».":"Не получилось скопировать."; else t.querySelector("span")?null:(t.textContent=ok?"Скопировано":"Не вышло"); }); }
+  else if(a.rnalog){ try{ if(TG && TG.openLink) TG.openLink(LKNPD); else window.open(LKNPD,"_blank"); }catch(_){ window.open(LKNPD,"_blank"); } }
+  else if(a.rdone){ markReceipt(a.rdone); if(a.rclose) closeModal(); }
+  else if(a.selfon){ ui.self=true; if(!ui.selfFrom) ui.selfFrom=today().slice(0,7)+"-01"; saveUI(); render(); }
   else if(a.allmoves){ showAllMoves=true; renderMovesNotice(); }
   else if(a.allday) markDay(a.allday);
   else if(a.charge) change(()=>_set(a.charge,x=>({...x,status:"charged",hours:x.hours||1})));
@@ -2649,6 +2732,7 @@ function openEventForm(sid,type,date){
       if($("fTrial") && $("fTrial").checked) ev.trial=true;
     }
     change(()=>_add(ev)); closeModal();
+    if(ev.type==="payment" && isSelf() && ev.date>=(ui.selfFrom||"0000")) openReceipt(ev);
   };
 }
 
@@ -2755,7 +2839,7 @@ function digestData(){
     if(list.length) days[d]=list; }
   let debt=0; students.forEach(st=>{ const b=balanceOf(st).balance; if(b<0) debt+=-b; });
   return {today:t,days,unmarked:unmarkedPast().length+allEvents().filter(e=>e.type==="cancel"&&e.status==="pending").length,
-    moves:waitingMoves().map(e=>byId(e.sid).name),debt:Math.round(debt)};
+    moves:waitingMoves().map(e=>byId(e.sid).name),debt:Math.round(debt),receipts:receiptsDue().length};
 }
 function digestStatusText(){
   if(!TG) return "Доступно, когда приложение открыто в Telegram";
@@ -3310,7 +3394,7 @@ function openImport(){
 if(typeof module!=="undefined" && module.exports){
   module.exports={_t:{
     set:(st,mo)=>{ students=st; normStudents(); months=mo||{}; },
-    students:()=>students, months:()=>months, digestData, topicPresets, setUI:o=>Object.assign(ui,o), snapPlan, prevNote, topicOf, shareSnapshot, inferTopic, lastNotesByTopic, notesBlockHtml, fillAutoCopies, openBackup,
+    students:()=>students, months:()=>months, yearStats, digestData, receiptsDue, taxFor, serviceName, topicPresets, setUI:o=>Object.assign(ui,o), snapPlan, prevNote, topicOf, shareSnapshot, inferTopic, lastNotesByTopic, notesBlockHtml, fillAutoCopies, openBackup,
     slotsOn, slotStatus, groupSlots, markDone, markDay, undoSlot, findEv,
     costOf, balanceOf, monthStats, planOf, rateAt, payCheck, registryRows, journalRows,
     monthPulse, freeSlots, reportDue, reportPeriodFor, parentText, tplText, fullName,
