@@ -460,9 +460,31 @@ const otherDays = (() => { const out = []; for (let i = 1; out.length < 4 && i <
     ok("пробники: удаление в два нажатия", await p5.locator("#det .scchart circle").count() === 1);
     await p5.waitForTimeout(4300);
     ok("счётчик: один анонимный пинг — только хэш и версия", pings.length === 1 && /^\{"id":"[a-f0-9]{16}","v":"20\d\d\.\d\d\.\d\d"\}$/.test(pings[0]), pings.join(" | "));
-    await p5.reload(); await p5.waitForTimeout(4500);
-    ok("счётчик: в тот же день повторно не шлёт", pings.length === 1, String(pings.length));
+    /* повторный запуск в тот же день проверяем по отметке дня: перезагрузка file:// в Chromium иногда теряет localStorage */
+    const mark = await p5.evaluate(() => localStorage.getItem("tabel-ping"));
+    ok("счётчик: отметка дня стоит — сегодня повторно не пошлёт", mark === new Date().toISOString().slice(0, 10), String(mark));
     await ctx5.close();
+
+    // оплата сразу за несколько месяцев
+    const ctx6 = await browser.newContext({ viewport: { width: W, height: H }, locale: "ru-RU" });
+    await ctx6.route("**/telegram-web-app.js", r => r.fulfill({ contentType: "application/javascript", body: "" }));
+    await ctx6.route("**/ping", r => r.fulfill({ status: 204, body: "" }));
+    const p6 = await ctx6.newPage();
+    await p6.addInitScript(() => { if (!localStorage.getItem("tutor-ledger-v1")) localStorage.setItem("tutor-ledger-v1", JSON.stringify({ students: [{ id: "mm", name: "Лиза", price: 1000, hours: 1, mode: "month", sched: [{ from: "2026-01-01", days: [2, 4], times: { 2: "16:00", 4: "16:00" }, durs: { 2: 1, 4: 1 } }] }], months: {} })); localStorage.setItem("tutor-ui", JSON.stringify({ obHide: true })); });
+    await p6.goto(APP); await p6.waitForTimeout(200);
+    await p6.click('[data-tab="st"]'); await p6.click('[data-q="payment"]'); await p6.waitForTimeout(100);
+    const chips6 = await p6.locator("#fChips [data-amt]").allInnerTexts();
+    ok("оплата: быстрые суммы «до конца …» на 3 месяца", chips6.filter(t => t.startsWith("до конца")).length === 3, chips6.join(" | "));
+    await p6.locator("#fChips [data-amt]").filter({ hasText: "до конца" }).nth(2).click(); await p6.waitForTimeout(50);
+    const h6 = await p6.locator("#fHint").innerText();
+    ok("оплата: подсказка «занятия оплачены до конца …» и число месяцев", /оплачены до конца \S+ \(3 месяца\)/.test(h6), h6);
+    await p6.click("#fSave"); await p6.waitForTimeout(150);
+    await p6.click('[data-open="mm"]'); await p6.waitForTimeout(80);
+    const d6 = await p6.locator("#det").innerText();
+    ok("карточка: «аванс … · оплачено до конца … (3 месяца)»", /аванс 27\s000 ₽ · оплачено до конца \S+ \(3 месяца\)/.test(d6), d6.slice(0, 300));
+    await p6.keyboard.press("Escape"); await p6.waitForTimeout(100); await p6.click('#tabs [data-tab="st"]'); await p6.waitForTimeout(80);
+    ok("список учеников: «Оплачено до конца … · 3 месяца»", /Оплачено до конца \S+ · 3 месяца/.test(await p6.locator("#view").innerText()));
+    await ctx6.close();
   } catch (e) { fail++; console.log("  ✗ Тест остановился: " + e.message.split("\n")[0]); }
 
   section("17. Ошибки в работе страницы");

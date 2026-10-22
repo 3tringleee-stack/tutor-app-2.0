@@ -1,5 +1,5 @@
 // Проверка бота без Telegram и Cloudflare: node test-worker.mjs
-import worker, { savePing, usageLines, scoreLines, shareText, sharePage, tgUserFrom, digestText, runDigests, runReminders, runLessonReminders } from "./worker.js";
+import worker, { balanceLines, savePing, usageLines, scoreLines, shareText, sharePage, tgUserFrom, digestText, runDigests, runReminders, runLessonReminders } from "./worker.js";
 const calls = [];
 globalThis.fetch = async (u, o) => { calls.push({ method: u.split("/").pop(), body: JSON.parse(o.body) }); return { json: async () => ({ ok: true }) }; };
 const env = { BOT_TOKEN: "123:abc", APP_URL: "https://example.github.io/tabel/", WEBHOOK_SECRET: "s3cret_s3cret_s3cret", AUTHOR_TG: "nikita" };
@@ -214,6 +214,7 @@ ok("выключено — не напоминает", ln === 0);
   ok("без пробников — ничего лишнего", !shareText({ ...d, scores: [] }, 10).includes("Пробники") && !sharePage({ ...d, scores: undefined }).includes("<svg"));
   ok("ОГЭ отдельно, цель ЕГЭ к нему не цепляется", scoreLines({ ...d, scores: [{ d: "1", exam: "ОГЭ", score: 20, max: 31 }] })[0] === "📈 Пробники ОГЭ: 20 из 31");
 }
+ok("оплата на несколько месяцев: «занятия оплачены до конца декабря»", balanceLines({ bal: 9000, per: 1000, until: "до конца декабря" }).join(" ").includes("Оплачено вперёд: <b>9 000 ₽</b> — занятия оплачены до конца декабря"), balanceLines({ bal: 9000, per: 1000, until: "до конца декабря" }).join(" "));
 // ---------- счётчик пользователей ----------
 {
   const meta = new Map();

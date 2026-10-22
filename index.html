@@ -532,6 +532,7 @@ const fmtH = h => { const tot=Math.round((+h||0)*60);
   if(tot%30===0) return String(tot/60).replace(".",",")+" ч";
   return Math.floor(tot/60)+" ч "+(tot%60)+" мин"; };
 const MONTHS = ["январь","февраль","март","апрель","май","июнь","июль","август","сентябрь","октябрь","ноябрь","декабрь"];
+const MONTHS_RG = ["января","февраля","марта","апреля","мая","июня","июля","августа","сентября","октября","ноября","декабря"];
 const MONTHS_GEN = ["январе","феврале","марте","апреле","мае","июне","июле","августе","сентябре","октябре","ноябре","декабре"];
 const monthLabel = k => { const [y,m]=k.split("-"); return MONTHS[+m-1]+" "+y; };
 const cap = t => t ? t.charAt(0).toUpperCase()+t.slice(1) : t;
@@ -742,7 +743,7 @@ async function refreshCloud(){
 }
 
 /* ---------- storage ---------- */
-const BUILD="2026.10.21";
+const BUILD="2026.10.22";
 const AUTHOR_TG="Tringleee";
 /* Ссылки для родителей: адрес воркера бота (Cloudflare) и имя бота без @ */
 const SHARE_API="https://tabel-bot.3tringleee.workers.dev";
@@ -1298,7 +1299,7 @@ function openWizard(){
         <div class="hint" id="wCost"></div>
         <label>Как платит</label>
         <div class="pick" id="wMode">
-          <button type="button" data-m="month" aria-pressed="${data.mode==="month"}"><b>За месяц вперёд</b><span>В начале месяца платит за все занятия месяца по расписанию</span></button>
+          <button type="button" data-m="month" aria-pressed="${data.mode==="month"}"><b>За месяц вперёд</b><span>В начале месяца платит за все занятия месяца по расписанию. Можно и сразу за 2–3 месяца — Табель покажет, до какого месяца оплачено</span></button>
           <button type="button" data-m="prepaid" aria-pressed="${data.mode==="prepaid"}"><b>Пакетом вперёд</b><span>Платит сразу за несколько занятий, например за 4 или 8. Они списываются по одному после каждого занятия</span></button>
           <button type="button" data-m="after" aria-pressed="${data.mode==="after"}"><b>После занятий</b><span>Платит за уже прошедшие занятия: после каждого занятия или раз в месяц</span></button>
         </div>
@@ -1763,7 +1764,7 @@ function parentText(st,key){
     const p=planOf(st,r.next), ni=+r.next.slice(5)-1;
     if(p.cost>0){
       L.push(`Оплата за ${MONTHS[ni]}: ${lessonsWord(p.count)}, ${fmtH(p.hours)} — ${rub(p.cost)}.`);
-      if(r.bal>0) L.push(r.bill>0?`С учётом аванса ${rub(r.bal)} к оплате ${rub(r.bill)}.`:`Этот месяц уже оплачен вперёд, доплачивать не нужно.`);
+      if(r.bal>0) L.push(r.bill>0?`С учётом аванса ${rub(r.bal)} к оплате ${rub(r.bill)}.`:`${(()=>{ const c=coverInfo(st,r.bal); return c&&c.full?`Занятия уже оплачены ${c.text}`:"Этот месяц уже оплачен вперёд"; })()}, доплачивать не нужно.`);
       else if(r.bal<0) L.push(`Вместе с долгом ${rub(-r.bal)} к оплате ${rub(r.bill)}.`);
       else L.push(`К оплате: ${rub(r.bill)}.`);
     } else L.push(r.bal<0?`К оплате: ${rub(-r.bal)}.`:r.bal>0?`На балансе ${rub(r.bal)} — пойдёт в счёт следующих занятий.`:"Задолженности нет.");
@@ -1793,7 +1794,10 @@ function schedText(st){
 function paidUntil(st,bal){
   if(!(st.price>0) || bal<=0) return null;
   let left=bal, last=null;
-  for(let i=0;i<200;i++){
+  /* неотмеченные прошедшие занятия этого месяца тоже будут к оплате — сначала аванс уходит на них */
+  for(let d=today().slice(0,7)+"-01"; d<today(); d=addDays(d,1)) slotsOn(d).forEach(sl=>{ if(sl.st.id===st.id && slotStatus(sl)==="open") left-=(sl.hours||durFor(st,d))*rateAt(st,d); });
+  if(left<=0) return null;
+  for(let i=0;i<400;i++){
     const d=addDays(today(),i);
     if(!plannedOn(st,d)) continue;
     const e=planEvent(st,d); if(e && (e.type==="skip"||e.type==="moved")) continue;
@@ -1802,6 +1806,36 @@ function paidUntil(st,bal){
     left-=c; last=d;
   }
   return last;
+}
+/* До какого месяца хватает оплаты: «до конца декабря» или конкретная дата */
+function lessonLeftInMonth(st,after){
+  const end=lastDay(after.slice(0,7));
+  for(let d=addDays(after,1); d<=end; d=addDays(d,1)){ if(!plannedOn(st,d)) continue; const e=planEvent(st,d); if(e&&(e.type==="skip"||e.type==="moved")) continue; return true; }
+  return false;
+}
+function coverInfo(st,bal){
+  const until=paidUntil(st,bal); if(!until) return null;
+  const full=!lessonLeftInMonth(st,until), k=until.slice(0,7);
+  const lastFull = full ? k : shiftMonth(k,-1);
+  const months = lastFull>=today().slice(0,7) ? (+lastFull.slice(0,4)-+today().slice(0,4))*12 + (+lastFull.slice(5)-+today().slice(5,7)) + 1 : 0;
+  return {until, full, months, text: full ? `до конца ${MONTHS_RG[+k.slice(5)-1]}` : `по ${fmtDate(until)} включительно`};
+}
+/* Сколько заплатить, чтобы были оплачены все месяцы по указанный включительно */
+function payForMonths(st,n){
+  const cur=today().slice(0,7);
+  const have=balanceOf(st).balance;   // аванс (+) или долг (−) на сегодня, с учётом проведённых занятий
+  const out=[];
+  let need=0;
+  /* в текущем месяце осталось оплатить: план месяца минус уже проведённые занятия (они уже в балансе) */
+  const m=monthStats(st,cur), restCur=Math.max(0,planOf(st,cur).cost-m.cost);
+  need+=restCur;
+  let k=cur;
+  for(let i=0;i<n+1 && out.length<n;i++){
+    if(i>0){ k=shiftMonth(cur,i); need+=planOf(st,k).cost; }
+    const amt=Math.round(need-have);
+    if(amt>0 && planOf(st,k).cost>0) out.push({key:k,amt});
+  }
+  return out;
 }
 function payBar(st){
   const bal=balanceOf(st).balance;
@@ -1812,7 +1846,7 @@ function payBar(st){
   const until=paidUntil(st,bal);
   const pct=Math.round(ratio*100);
   const txt = bal>0
-    ? (until?`Оплачено по ${fmtDate(until)} включительно`:"Оплачено вперёд")+(pct>=100?" · больше чем на месяц":"")
+    ? (()=>{ const c=coverInfo(st,bal); return c ? `Оплачено ${c.text}`+(c.months>=2?` · ${c.months} ${plural(c.months,"месяц","месяца","месяцев")}`:"") : "Оплачено вперёд"; })()
     : `Не оплачено: ${lessonsWord(Math.max(1,Math.round(-bal/((st.price||1)*(st.hours||1)))))}`;
   return `<div class="paybar"><div class="track"><div class="fill ${bal<0?"neg":""}" style="width:${Math.round(ratio*100)}%"></div></div><div class="paytxt">${txt}</div></div>`;
 }
@@ -2709,23 +2743,30 @@ function openEventForm(sid,type,date){
       const tr=$("fTrial")&&$("fTrial").checked;
       if($("fRepeat")&&$("fRepeat").checked){ const dd=$("fDate").value; $("fHint").textContent=`С ${dd?fmtDate(dd):"этого дня"} занятие будет стоять в расписании каждую неделю. Отмечайте его как обычно.`; return; }
       $("fHint").textContent = tr ? "Пробное занятие — бесплатно." : (s.price>0 ? "Стоимость: "+rub(num($("fH").value)*s.price)+". Для занятий по расписанию используйте «Сегодня» или «Календарь»." : "Цена за час не указана.");
-    } else if(s.mode==="month" && s.price>0){ const k=(d||today()).slice(0,7); const p=planOf(s,k); $("fHint").textContent=`По расписанию в ${MONTHS_GEN[+k.slice(5)-1]}: ${lessonsWord(p.count)}, ${fmtH(p.hours)} = ${rub(p.hours*s.price)}.`; }
+    } else if(s.price>0){
+      const a=num($("fAmt").value), c=a>0?coverInfo(s,balanceOf(s).balance+a):null;
+      const k=(d||today()).slice(0,7), p=planOf(s,k);
+      const base = s.mode==="month" ? `По расписанию в ${MONTHS_GEN[+k.slice(5)-1]}: ${lessonsWord(p.count)}, ${fmtH(p.hours)} = ${rub(p.cost)}.` : "";
+      $("fHint").textContent = base + (c ? `${base?" ":""}С этой оплатой занятия оплачены ${c.text}${c.months>=2?` (${c.months} ${plural(c.months,"месяц","месяца","месяцев")})`:""}.` : "");
+    }
     else $("fHint").textContent="";
   };
   const setType=t=>{ cur=t; $("seg").querySelectorAll("button").forEach(b=>b.setAttribute("aria-pressed",b.dataset.t===t));
-    $("amtWrap").hidden=t!=="payment"; $("modal").querySelectorAll(".lf").forEach(x=>x.style.visibility=t==="lesson"?"visible":"hidden"); if(t==="payment") chips(); updHint(); };
+    $("amtWrap").hidden=t!=="payment"; $("modal").querySelectorAll(".lf").forEach(x=>x.style.display=t==="lesson"?"":"none"); if(t==="payment") chips(); updHint(); };
   $("seg").onclick=e=>{ const b=e.target.closest("button"); if(b) setType(b.dataset.t); };
   const chips=()=>{
     const s=byId($("fSt").value); if(!s||!$("fChips")) return;
     const u=usualPayment(s), m=Math.round(planOf(s,today().slice(0,7)).cost), four=Math.round((s.hours||1)*rateAt(s,today())*4);
-    const list=[["как в прошлый раз",u],["за месяц",m],["за 4 занятия",four]].filter(x=>x[1]>0);
+    const mon = s.mode==="month" ? payForMonths(s,3).map(x=>[`до конца ${MONTHS_RG[+x.key.slice(5)-1]}`,x.amt]) : [["за месяц",m]];
+    const paidBefore=allEvents().some(e=>e.sid===s.id&&e.type==="payment");
+    const list=[...(paidBefore&&!mon.some(x=>x[1]===u)?[["как в прошлый раз",u]]:[]),...mon,...(s.mode==="month"?[]:[["за 4 занятия",four]])].filter(x=>x[1]>0);
     $("fChips").innerHTML=list.map(x=>`<button class="chip" type="button" data-amt="${x[1]}">${x[0]}: ${rub(x[1])}</button>`).join("");
-    $("fChips").querySelectorAll("[data-amt]").forEach(b=>b.onclick=e=>{ e.stopPropagation(); $("fAmt").value=b.dataset.amt; });
+    $("fChips").querySelectorAll("[data-amt]").forEach(b=>b.onclick=e=>{ e.stopPropagation(); $("fAmt").value=b.dataset.amt; updHint(); });
     if(!$("fAmt").value && u>0) $("fAmt").value=u;
   };
   $("fSt").onchange=()=>{ const s=byId($("fSt").value); if(s) setHours("fH",s.hours||1); chips(); updHint(); };
   const repTxt=()=>{ const d=$("fDate").value; if(d) $("fRepeatTxt").textContent=`Повторять ${WD_EVERY[parse(d).getDay()]} — добавить в расписание`; };
-  $("fDate").onchange=()=>{ updHint(); repTxt(); }; $("fH").oninput=updHint; repTxt();
+  $("fDate").onchange=()=>{ updHint(); repTxt(); }; $("fH").oninput=updHint; $("fAmt").oninput=updHint; repTxt();
   $("fRepeat").onchange=()=>{ if($("fRepeat").checked){ $("fTrial").checked=false; if(!$("fTime").value) $("fTime").focus(); } updHint(); };
   if($("fTrial")) $("fTrial").onchange=updHint;
   setType(cur);
@@ -2759,7 +2800,7 @@ function renderDetail(){
   const st=byId(detailSid); if(!st||!$("det")) return;
   const b=balanceOf(st), m=monthStats(st,detailMonth);
   const evs=(months[detailMonth]||[]).filter(e=>e.sid===st.id).sort((a,c)=>a.date<c.date?1:-1);
-  const balTxt = b.balance<0 ? `<span class="neg">долг ${rub(-b.balance)}</span>` : b.balance>0 ? `<span class="pos">аванс ${rub(b.balance)}</span>` : "в расчёте";
+  const balTxt = b.balance<0 ? `<span class="neg">долг ${rub(-b.balance)}</span>` : b.balance>0 ? `<span class="pos">аванс ${rub(b.balance)}</span>`+(()=>{ const c=coverInfo(st,b.balance); return c?` · оплачено ${c.text}${c.months>=2?` (${c.months} ${plural(c.months,"месяц","месяца","месяцев")})`:""}`:""; })() : "в расчёте";
   const hist = evs.length ? evs.map(e=>{
     let t="",amt="";
     if(e.type==="lesson"){ t=(e.trial?"Пробное занятие":e.slot==="makeup"?"Перенесённое занятие":e.planned?"Занятие":"Занятие вне расписания")+" · "+fmtH(hoursOf(e,st)); amt=e.trial?"бесплатно":"−"+rub(costOf(e,st)); }
@@ -2847,7 +2888,8 @@ function shareSnapshot(st){
       if(next.length<4) next.push({d:fmtDate(d),wd:wdOf(d),t:sl.time||""});
       if(i<=14) up.push({date:d,t:sl.time||"",tp:slotTopic(sl)||""}); }); }
   const per = st.price>0 ? Math.round(rateAt(st,t)*(durFor(st,t)||st.hours||1)) : 0;
-  return {v:1,name:st.name,tutor:tutorName(),bal:Math.round(balanceOf(st).balance),per,
+  const cov=coverInfo(st,balanceOf(st).balance);
+  return {v:1,name:st.name,tutor:tutorName(),bal:Math.round(balanceOf(st).balance),per,until:cov?cov.text:"",
     months:mons.reverse(),next,scores:scoresOf(st).slice(-12).map(r=>({d:fmtDate(r.date),exam:r.exam||"Пробник",score:r.score,max:r.max||100})),goal:+st.goalScore||0,goalExam:st.goalExam||"ЕГЭ",how:(st.share&&st.share.how)||"",auto:(st.share&&st.share.auto)||"",lr:(st.share&&st.share.lessons)||"",up,tz:new Date().getTimezoneOffset(),
     upd:`${fmtDate(t)} в ${pad(now.getHours())}:${pad(now.getMinutes())}`};
 }
@@ -3478,7 +3520,7 @@ function openImport(){
 if(typeof module!=="undefined" && module.exports){
   module.exports={_t:{
     set:(st,mo)=>{ students=st; normStudents(); months=mo||{}; },
-    students:()=>students, months:()=>months, yearStats, scoresOf, scoreChart, pingUsage, digestData, receiptsDue, taxFor, serviceName, topicPresets, setUI:o=>Object.assign(ui,o), snapPlan, prevNote, topicOf, shareSnapshot, inferTopic, lastNotesByTopic, notesBlockHtml, fillAutoCopies, openBackup,
+    students:()=>students, months:()=>months, yearStats, scoresOf, scoreChart, pingUsage, coverInfo, payForMonths, paidUntil, digestData, receiptsDue, taxFor, serviceName, topicPresets, setUI:o=>Object.assign(ui,o), snapPlan, prevNote, topicOf, shareSnapshot, inferTopic, lastNotesByTopic, notesBlockHtml, fillAutoCopies, openBackup,
     slotsOn, slotStatus, groupSlots, markDone, markDay, undoSlot, findEv,
     costOf, balanceOf, monthStats, planOf, rateAt, payCheck, registryRows, journalRows,
     monthPulse, freeSlots, reportDue, reportPeriodFor, parentText, tplText, fullName,

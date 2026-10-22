@@ -154,7 +154,7 @@ function balanceLines(d) {
   const L = [];
   /* Родитель видит то же, что репетитор: долг за уже проведённые занятия или аванс. План на месяц вперёд не показываем. */
   if (d.bal < 0) L.push(`Долг: <b>${rubS(-d.bal)}</b>`);
-  else if (d.bal > 0) L.push(`Оплачено вперёд: <b>${rubS(d.bal)}</b>` + (d.per > 0 && d.bal >= d.per ? ` — это примерно ${Math.floor(d.bal / d.per)} ${pluralRu(Math.floor(d.bal / d.per), "занятие", "занятия", "занятий")}` : ""));
+  else if (d.bal > 0) L.push(`Оплачено вперёд: <b>${rubS(d.bal)}</b>` + (d.until ? ` — занятия оплачены ${escH(d.until)}` : d.per > 0 && d.bal >= d.per ? ` — это примерно ${Math.floor(d.bal / d.per)} ${pluralRu(Math.floor(d.bal / d.per), "занятие", "занятия", "занятий")}` : ""));
   else L.push("Долга нет, всё оплачено ✅");
   return L;
 }
@@ -465,7 +465,7 @@ async function testDigests(env) {
   }
   return n;
 }
-export { savePing, usageLines, scoreLines, shareText, sharePage, tgUserFrom, digestText, runDigests, runReminders, remindText, runLessonReminders, lessonText };
+export { balanceLines, savePing, usageLines, scoreLines, shareText, sharePage, tgUserFrom, digestText, runDigests, runReminders, remindText, runLessonReminders, lessonText };
 export default {
   async scheduled(event, env, ctx) {
     const t = event.scheduledTime || Date.now();

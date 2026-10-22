@@ -336,5 +336,26 @@ console.log("\n15. Тексты для родителей — без машин�
   eq("комментарий к пробнику родителю не уходит", JSON.stringify(sn).includes("часть 2"), false);
 }
 
+{
+  console.log("\n23. Оплата сразу за несколько месяцев");
+  const RealDate=Date; const FIX=new RealDate(2026,9,22,12,0,0).getTime();
+  global.Date=class extends RealDate{ constructor(...a){ a.length?super(...a):super(FIX); } static now(){ return FIX; } };
+  try{
+    T.set([S({id:"mm",name:"Лиза",price:1000,hours:1,mode:"month",sched:sch([2],"16:00",1)})],{"2026-10":[
+      {id:"p0",sid:"mm",type:"payment",date:"2026-10-01",amount:4000},
+      ...["06","13","20"].map((d,i)=>({id:"l"+i,sid:"mm",type:"lesson",planned:true,date:"2026-10-"+d,time:"16:00",hours:1}))]});
+    const st=T.students()[0];
+    eq("октябрь оплачен — «до конца октября»", (T.coverInfo(st,T.balanceOf(st).balance)||{}).text, "до конца октября");
+    eq("быстрые суммы: до конца ноября / декабря / января", T.payForMonths(st,3).map(x=>x.key+":"+x.amt), ["2026-11:4000","2026-12:9000","2027-01:13000"]);
+    const c=T.coverInfo(st,T.balanceOf(st).balance+9000);
+    eq("после оплаты 9000 — «до конца декабря», 3 месяца", c.text+"|"+c.months, "до конца декабря|3");
+    eq("неполный месяц — до даты", /^по 10\.11(\.2026)? включительно$/.test(T.coverInfo(st,T.balanceOf(st).balance+2000).text), true);
+    T.change(()=>T.add({id:"p1",sid:"mm",type:"payment",date:"2026-10-22",amount:9000}));
+    eq("в снимке для родителя — до какого месяца оплачено", T.shareSnapshot(T.students()[0]).until, "до конца декабря");
+    const pt=T.parentText(T.students()[0],"2026-10");
+    eq("месячный отчёт: «уже оплачены до конца декабря, доплачивать не нужно»", pt.includes("Занятия уже оплачены до конца декабря, доплачивать не нужно"), true);
+  } finally { global.Date=RealDate; }
+}
+
 console.log("\n" + (fail? `ПРОВАЛЕНО: ${fail}, пройдено: ${pass}` : `Все проверки пройдены: ${pass}`));
 process.exit(fail?1:0);
